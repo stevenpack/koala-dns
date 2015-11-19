@@ -2,13 +2,13 @@ extern crate getopts;
 extern crate mio;
 
 mod command_line;
-mod server;
+mod server_mio;
 
-use server::Start;
+use server_mio::Start;
 
 fn main() {
     
     let config = command_line::parse_args();
-    let server = server::Server {port: config.port};
+    let server = server_mio::Server {port: config.port};
     server.start();
 }
