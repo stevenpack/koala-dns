@@ -24,6 +24,39 @@ struct MioServer {
     udp_server: mio::udp::UdpSocket
 }
 
+/*
+A request reply transaction
+*/
+struct Transaction<T: Transport> {
+    //InboundTransport (TcpSocket or UDP Address)
+    //Outbound (TcpSocket or UDP Address)
+    //Query (parsed and raw)
+    //Response (parsed and raw)
+    id: u32,
+    rx: T,
+    tx: T
+}
+
+struct UdpTransport  {
+    addr: u32
+}
+
+trait Transport {
+    fn receive(&self);    
+    fn send(&self);
+}
+
+impl Transport for UdpTransport {
+    fn receive(&self) {
+        println!("receive UDP using my addr: {}", self.addr);
+    }
+    
+    fn send(&self) {
+        println!("send UDP");
+    }
+    
+}
+
 impl Start for Server {
     fn start(&self) {
         println!("Starting server on port {}", self.port);        
@@ -95,9 +128,12 @@ fn accept_tcp_connection(tcp_server: &TcpListener) -> bool {
             println!("accepted a tcp socket {}", connection.local_addr().unwrap());
 
             //TODO: add to list of connected clients
-            // get the response
-            // register for writable
-            // write
+            //parse query
+            //in cache?
+            //yes, get from cache
+            //no, get from upstream
+                // register for writable
+                // write
 
             let quote = "What tcp bytes do you seek avatar?";
             let _ = connection.write_all(quote.as_bytes());
@@ -148,6 +184,17 @@ fn accept_udp_connection(udp_server: &mio::udp::UdpSocket) -> bool {
 }
 
 fn start(tcp_server: TcpListener, udp_server: mio::udp::UdpSocket) {
+    
+    let t = Transaction::<UdpTransport> {
+        id: 1,
+        rx: UdpTransport{addr: 3},
+        tx: UdpTransport{addr: 4}
+    };
+    t.rx.receive();
+    t.tx.send();
+    return;
+    
+    
     let mut event_loop = mio::EventLoop::new().unwrap();
     let _ = event_loop.register_opt(&tcp_server, TCP_SERVER_TOKEN, mio::EventSet::readable(), mio::PollOpt::edge() | mio::PollOpt::oneshot());
     let _ = event_loop.register_opt(&udp_server, UDP_SERVER_TOKEN, mio::EventSet::readable(), mio::PollOpt::edge() | mio::PollOpt::oneshot());
