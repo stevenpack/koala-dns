@@ -1,12 +1,9 @@
 extern crate mio;
+extern crate bytes;
 
+use mio::tcp::*;
 use std::net::SocketAddr;
 use std::io::Write;
-use mio::{EventSet, PollOpt, Handler};
-use mio::tcp::*;
-use mio::udp::UdpSocket;
-use mio::buf::*;
-
 /*
 Public shown to main
 */
@@ -23,7 +20,7 @@ Internal
 */
 struct MioServer {
     tcp_server: TcpListener,
-    udp_server: UdpSocket
+    udp_server: mio::udp::UdpSocket
 }
 
 impl Start for Server {
@@ -36,9 +33,9 @@ impl Start for Server {
     }    
 }
 
-fn bind_udp(address: SocketAddr) -> UdpSocket {
+fn bind_udp(address: SocketAddr) -> mio::udp::UdpSocket {
     println!("Binding UDP to {:?}", address);
-    let udp_socket = UdpSocket::v4().unwrap();
+    let udp_socket = mio::udp::UdpSocket::v4().unwrap();
     let _ = match udp_socket.bind(&address) {
         Ok(s) => s,
         Err(e) => {
@@ -69,16 +66,23 @@ impl mio::Handler for MioServer {
     #[allow(unused_variables)]
     fn ready(&mut self, event_loop: &mut mio::EventLoop<MioServer>, token: mio::Token, events: mio::EventSet) {
         match token {
-            TCP_SERVER_TOKEN => { accept_tcp_connection(self); },
-            UDP_SERVER_TOKEN => { accept_udp_connection(self); },
+            TCP_SERVER_TOKEN => { accept_tcp_connection(&self.tcp_server, event_loop); },
+            UDP_SERVER_TOKEN => { 
+                let reregister = accept_udp_connection(&self.udp_server, event_loop);
+                if reregister {
+                            //re-register
+                let _ = event_loop.reregister(&self.udp_server, UDP_SERVER_TOKEN, mio::EventSet::readable(), mio::PollOpt::edge() | mio::PollOpt::oneshot());
+                }
+
+            },
             _ => { panic!("Unknown token"); }
         }
     }
 }
 
-fn accept_tcp_connection(mio_server: &MioServer) {
+fn accept_tcp_connection(tcp_server: &TcpListener, event_loop: &mio::EventLoop<MioServer>) {
         println!("the server socket is ready to accept a TCP connection");
-        match mio_server.tcp_server.accept() {
+        match tcp_server.accept() {
             Ok(Some(mut connection)) => {
                 println!("accepted a tcp socket {}", connection.local_addr().unwrap());
                 
@@ -102,37 +106,42 @@ fn accept_tcp_connection(mio_server: &MioServer) {
         }
 }
 
-fn accept_udp_connection(mio_server: &MioServer) {
-        println!("the server socket is ready to accept a UDP connection");
-        let mut buf = Vec::<u8>::new();
-        match mio_server.udp_server.recv_from(&mut buf) {
-            Ok(Some(addr)) => {
-                
-                println!("remaining is {}", buf.remaining());
-                match String::from_utf8(buf) {
-                    Ok(str) => {
-                        println!("buffer is {}", str);        
-                    },
-                    Err(e) => {
-                        println!("could't convert the buffer to utf8. {}", e);
-                    }
-                }                      
+fn accept_udp_connection(udp_server: &mio::udp::UdpSocket, event_loop: &mio::EventLoop<MioServer>) -> bool {
+    println!("the server socket is ready to accept a UDP connection");
+    //note: sampel echo server uses MutSliceBuf with a pre-allocated size. Would be faster,
+    //      but it's awkward to handle except for writing to sockets (how to convert to string for debugging?)
+    let mut buf = Vec::<u8>::new();
+    match udp_server.recv_from(&mut buf) {
+        Ok(Some(addr)) => {
+
+            //println!("remaining is {}", buf.remaining());
+            match String::from_utf8(buf) {
+                Ok(str) => {
+                    println!("buffer is {}", str);        
+                },
+                Err(e) => {
+                    println!("could't convert the buffer to utf8. {}", e);
+                }
+            }                      
+
+            let quote = "What udp bytes do you seek avatar?";
+            let mut quote_buf = mio::buf::SliceBuf::wrap(&mut quote.as_bytes());
+            let _ = udp_server.send_to(&mut quote_buf, &addr);
+
+            //todo: get guidance from carllerche on when you need to reregister
+            return true;
             
-                let quote = "What udp bytes do you seek avatar?";
-                let mut quote_buf = SliceBuf::wrap(&mut quote.as_bytes());
-                let _ = mio_server.udp_server.send_to(&mut quote_buf, &addr);
-                
-                //re-register
-            }
-            Ok(None) => println!("The udp socket wasn't actually ready"),
-            Err(e) => println!("couldn't receive a datagram: {}", e)
-        }    
+        }
+        Ok(None) => println!("The udp socket wasn't actually ready"),
+        Err(e) => println!("couldn't receive a datagram: {}", e)
+    }    
+    return false;
 }
 
-fn start(tcp_server: TcpListener, udp_server: UdpSocket) {
+fn start(tcp_server: TcpListener, udp_server: mio::udp::UdpSocket) {
     let mut event_loop = mio::EventLoop::new().unwrap();
-    let _ = event_loop.register_opt(&tcp_server, TCP_SERVER_TOKEN, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
-    let _ = event_loop.register_opt(&udp_server, UDP_SERVER_TOKEN, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
+    let _ = event_loop.register_opt(&tcp_server, TCP_SERVER_TOKEN, mio::EventSet::readable(), mio::PollOpt::edge() | mio::PollOpt::oneshot());
+    let _ = event_loop.register_opt(&udp_server, UDP_SERVER_TOKEN, mio::EventSet::readable(), mio::PollOpt::edge() | mio::PollOpt::oneshot());
 
     println!("running mio server");
     let mut mio_server = MioServer {
