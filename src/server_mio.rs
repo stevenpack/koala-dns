@@ -1,6 +1,7 @@
 extern crate mio;
 extern crate bytes;
 
+use mio::{Evented, Token, EventLoop};
 use mio::tcp::*;
 use std::net::SocketAddr;
 use std::io::Write;
@@ -66,47 +67,55 @@ impl mio::Handler for MioServer {
     #[allow(unused_variables)]
     fn ready(&mut self, event_loop: &mut mio::EventLoop<MioServer>, token: mio::Token, events: mio::EventSet) {
         match token {
-            TCP_SERVER_TOKEN => { accept_tcp_connection(&self.tcp_server, event_loop); },
-            UDP_SERVER_TOKEN => { 
-                let reregister = accept_udp_connection(&self.udp_server, event_loop);
-                if reregister {
-                            //re-register
-                let _ = event_loop.reregister(&self.udp_server, UDP_SERVER_TOKEN, mio::EventSet::readable(), mio::PollOpt::edge() | mio::PollOpt::oneshot());
+            TCP_SERVER_TOKEN => { 
+                let is_reregister = accept_tcp_connection(&self.tcp_server); 
+                if is_reregister {
+                    reregister(event_loop, &self.tcp_server, token);
                 }
-
+            },
+            UDP_SERVER_TOKEN => { 
+                let is_reregister = accept_udp_connection(&self.udp_server);
+                if is_reregister {
+                    reregister(event_loop, &self.udp_server, token);
+                }
             },
             _ => { panic!("Unknown token"); }
         }
     }
 }
 
-fn accept_tcp_connection(tcp_server: &TcpListener, event_loop: &mio::EventLoop<MioServer>) {
-        println!("the server socket is ready to accept a TCP connection");
-        match tcp_server.accept() {
-            Ok(Some(mut connection)) => {
-                println!("accepted a tcp socket {}", connection.local_addr().unwrap());
-                
-                //TODO: add to list of connected clients
-                // get the response
-                // register for writable
-                // write
-                
-                let quote = "What tcp bytes do you seek avatar?";
-                let _ = connection.write_all(quote.as_bytes());
-                drop(connection);
-                
-                //re-register
-            }
-            Ok(None) => {
-                println!("the server socket wasn't actually ready");
-            }
-            Err(e) => {
-                println!("listener.accept() errored: {}", e);
-            }
-        }
+fn reregister(event_loop: &mut EventLoop<MioServer>, evented: &mio::Evented, token: Token) {
+    let _ = event_loop.reregister(evented, token, mio::EventSet::readable(), mio::PollOpt::edge() | mio::PollOpt::oneshot());
 }
 
-fn accept_udp_connection(udp_server: &mio::udp::UdpSocket, event_loop: &mio::EventLoop<MioServer>) -> bool {
+fn accept_tcp_connection(tcp_server: &TcpListener) -> bool {
+    println!("the server socket is ready to accept a TCP connection");
+    match tcp_server.accept() {
+        Ok(Some(mut connection)) => {
+            println!("accepted a tcp socket {}", connection.local_addr().unwrap());
+
+            //TODO: add to list of connected clients
+            // get the response
+            // register for writable
+            // write
+
+            let quote = "What tcp bytes do you seek avatar?";
+            let _ = connection.write_all(quote.as_bytes());
+            drop(connection);
+
+            return true;
+        }
+        Ok(None) => {
+            println!("the server socket wasn't actually ready");
+        }
+        Err(e) => {
+            println!("listener.accept() errored: {}", e);
+        }
+    }
+    return false;
+}
+
+fn accept_udp_connection(udp_server: &mio::udp::UdpSocket) -> bool {
     println!("the server socket is ready to accept a UDP connection");
     //note: sampel echo server uses MutSliceBuf with a pre-allocated size. Would be faster,
     //      but it's awkward to handle except for writing to sockets (how to convert to string for debugging?)
