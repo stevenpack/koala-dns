@@ -3,8 +3,10 @@ extern crate bytes;
 
 use mio::{Evented, Token, EventLoop};
 use mio::tcp::*;
+use mio::udp::UdpSocket;
 use std::net::SocketAddr;
-use std::io::Write;
+use std::io::{Read,Write};
+//use mio::buf::{Buf,ByteBuf};
 /*
 Public shown to main
 */
@@ -25,34 +27,63 @@ struct MioServer {
 }
 
 /*
-A request reply transaction
+A DNS request/reply transaction.
+Contains the id, the socket for receiving the request and sending the reply (rx)
+and the socket for forwarding it upstream (tx)
 */
-struct Transaction<T: Transport> {
-    //InboundTransport (TcpSocket or UDP Address)
-    //Outbound (TcpSocket or UDP Address)
-    //Query (parsed and raw)
-    //Response (parsed and raw)
+struct UdpTransaction {
     id: u32,
-    rx: T,
-    tx: T
+    query: Option<u32>, //type: tbd
+    response: Option<u32>, //type:tbd
+    rx: Option<UdpTransport>,
+    tx: Option<UdpTransport>
 }
 
+impl Default for UdpTransaction {
+    fn default() -> UdpTransaction { UdpTransaction {
+        id: 0,
+        query: None,
+        response: None,
+        rx: None,
+        tx: None
+    }}
+}
+
+trait UdpTransactionInit {
+    fn init_id(&mut self, id: u32);
+    fn init_tx(&mut self);
+}
+
+struct TcpTransport {
+    socket: TcpStream
+}
 struct UdpTransport  {
-    addr: u32
+    addr: SocketAddr,
 }
 
 trait Transport {
+    
     fn receive(&self);    
-    fn send(&self);
+    fn send(&self, buf: bytes::SliceBuf);
+}
+impl UdpTransactionInit for UdpTransaction {
+    fn init_id(&mut self, id: u32) {
+        self.id = id;
+    }
+    fn init_tx(&mut self) {
+        self.tx = Some(UdpTransport{addr: "0.0.0.0:55555".parse().unwrap()});
+    }        
 }
 
 impl Transport for UdpTransport {
+    
     fn receive(&self) {
         println!("receive UDP using my addr: {}", self.addr);
     }
     
-    fn send(&self) {
+    fn send(&self, buf: mio::buf::SliceBuf) {
         println!("send UDP");
+        //let _ = UdpSocket.bound(self.addr);
     }
     
 }
@@ -185,13 +216,18 @@ fn accept_udp_connection(udp_server: &mio::udp::UdpSocket) -> bool {
 
 fn start(tcp_server: TcpListener, udp_server: mio::udp::UdpSocket) {
     
-    let t = Transaction::<UdpTransport> {
-        id: 1,
-        rx: UdpTransport{addr: 3},
-        tx: UdpTransport{addr: 4}
-    };
-    t.rx.receive();
-    t.tx.send();
+    let mut t = UdpTransaction::default();// {
+        //id: 1,
+//        query: None,
+//        response: None,
+//        tx: None,
+//        rx: None
+    //};
+    //t.rx.receive();
+    t.init_id(1);
+    println!("starting txn: {}", t.id);
+    t.init_tx();
+    t.tx.unwrap().send(bytes::SliceBuf::wrap(b"hello"));
     return;
     
     
