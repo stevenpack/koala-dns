@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 //use std::thread;
 //use std::time::Duration;
 //use std::io::{Read,Write};
-//use mio::buf::{Buf,ByteBuf};
+use mio::buf::{SliceBuf,Buf};
 /*
 Public shown to main
 */            //todo: get guidance from carllerche on when you need to reregister
@@ -51,7 +51,7 @@ struct OutboundConnection {
     query_buf: Vec<u8>,
     rx_token: Token,
     rx_addr: SocketAddr,
-    response: Option<u32> //type:tbd
+    response: Vec<u8> //type:tbd
 
 }
 
@@ -80,7 +80,7 @@ impl OutboundConnection {
             query_buf: query_buf,
             rx_token: rx_token,
             rx_addr: rx_addr,
-            response: None
+            response: Vec::<u8>::new()
         }
     }
 
@@ -116,9 +116,10 @@ impl OutboundConnection {
                     Ok(Some(addr)) => {            
                         println!("received data from {:?}. Maybe even a DNS reply?", addr);                        
                         println!("Looks like this: {:?}", buf);
+                        self.response = buf;
                         self.change_state(OutboundState::ClientWrite);
-                        //todo: register event loop 
-                        udp_server.send_to(&mut bytes::SliceBuf::wrap(buf.as_slice()), &self.rx_addr);        
+                        //register the server socket to write.
+                        event_loop.register_opt(udp_server, token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
                         println!("Wrote the reply?!?!?!");
                     },
                     Ok(None) => println!("Got no data"),
@@ -126,7 +127,14 @@ impl OutboundConnection {
                 }
             },
             OutboundState::ClientWrite => {
-                //assert!();
+                assert!(events.is_writable());
+                println!("READY TO WRITE TO THE CLIENT");
+                udp_server.send_to(&mut SliceBuf::wrap(&self.response), &self.rx_addr);        
+                println!("done");
+                //register the server socket to read
+                reregister(event_loop, udp_server, UDP_SERVER_TOKEN);
+                //todo: remove
+                //get rid of InboundConnection into Connection/Transaction/State struct
             }
         }
     }
@@ -169,11 +177,11 @@ impl mio::Handler for MioServer {
                 }
             },
             _ => {
-                let rx_conn = self.rx_connections.get_mut(token);
-                if rx_conn.is_some() {
-                    rx_conn.unwrap().socket_ready(event_loop, token, events);
-                    return;
-                }
+                // let rx_conn = self.rx_connections.get_mut(token);
+                // if rx_conn.is_some() {
+                //     rx_conn.unwrap().socket_ready(event_loop, token, events);
+                //     return;
+                // }
                 let tx_conn = self.tx_connections.get_mut(token);
                 if tx_conn.is_some() {
                     tx_conn.unwrap().socket_ready(event_loop, token, events, &self.udp_server);
@@ -186,6 +194,7 @@ impl mio::Handler for MioServer {
 }
 
 fn reregister(event_loop: &mut EventLoop<MioServer>, evented: &mio::Evented, token: Token) {
+    println!("re-registered: {:?}", token);
     let _ = event_loop.reregister(evented, token, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
 }
 
@@ -214,7 +223,7 @@ fn accept_udp_connection(mio_server: &mut MioServer, event_loop: &mut EventLoop<
 
             println!("Upstream token is {:?}", tx_token);
             let _ = event_loop.register_opt(&mio_server.tx_connections[tx_token].tx_socket, tx_token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
-
+            println!("GOT HERE");
             return true;
             
         }
