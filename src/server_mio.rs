@@ -37,9 +37,20 @@ struct InboundConnection {
 }
 
 #[derive(Debug)]
+enum OutboundState {
+    UpstreamWrite,
+    UpstreamRead,
+    ClientWrite
+}
+
+#[derive(Debug)]
 struct OutboundConnection {
+    state: OutboundState,
     tx_token: Token,
+    tx_socket: UdpSocket,
+    query_buf: Vec<u8>,
     rx_token: Token,
+    rx_addr: SocketAddr,
     response: Option<u32> //type:tbd
 
 }
@@ -54,30 +65,69 @@ impl InboundConnection {
         return conn;
     }
 
-    fn socket_ready(&self, token: Token, events: EventSet) {
+    fn socket_ready(&self, event_loop: &mut EventLoop<MioServer>, token: Token, events: EventSet) {
         println!("I'm ready to write the client some data!!!");
     }
 }
 
 impl OutboundConnection {
 
-    fn new(tx_token: Token, rx_token: Token) -> OutboundConnection {
+    fn new(tx_token: Token, tx_socket: UdpSocket, query_buf: Vec<u8>, rx_token: Token, rx_addr: SocketAddr) -> OutboundConnection {
         return OutboundConnection {
+            state: OutboundState::UpstreamWrite,
             tx_token: tx_token,
+            tx_socket: tx_socket,
+            query_buf: query_buf,
             rx_token: rx_token,
+            rx_addr: rx_addr,
             response: None
-        };
+        }
     }
 
-    fn socket_ready(&self, token: Token, events: EventSet) {
+    fn change_state(&mut self, state: OutboundState) {
+        self.state = state;
+    }
+
+    fn socket_ready(&mut self, event_loop: &mut EventLoop<MioServer>, token: Token, events: EventSet, udp_server: &UdpSocket) {
         println!("I'm ready to write or read some data from upstream!");
 
-        if events.is_writable() {
-            println!("And the winner is... WRITING. Read token is: {:?}. Write token is: {:?}", self.rx_token, self.tx_token);
-        } 
-
-        if events.is_readable() {
-            println!("And the winner is... READING");
+        match self.state {
+            OutboundState::UpstreamWrite => {
+                assert!(events.is_writable());
+                println!("And the winner is... WRITING. Read token is: {:?}. Write token is: {:?}", self.rx_token, self.tx_token);            
+                let tx_addr = format!("8.8.8.8:{:?}", 53).parse().unwrap();
+                //todo: what to pass the query buf around as?
+                match self.tx_socket.send_to(&mut bytes::SliceBuf::wrap(self.query_buf.as_slice()), &tx_addr) {
+                    Ok(Some(_)) => {
+                        self.change_state(OutboundState::UpstreamRead);
+                        println!("Transitioned to read");
+                        let _ = event_loop.register_opt(&self.tx_socket, token, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
+                    },
+                    Ok(None) => {println!("Failed to send. What now? Event fires again..?")}
+                    Err(e) => println!("Failed to write {:?}", e)
+                    //todo: free resources
+                }
+            }
+            OutboundState::UpstreamRead => {
+                assert!(events.is_readable());
+                println!("And the winner is... READING");
+                let mut buf = Vec::<u8>::new();
+                match self.tx_socket.recv_from(&mut buf) {
+                    Ok(Some(addr)) => {            
+                        println!("received data from {:?}. Maybe even a DNS reply?", addr);                        
+                        println!("Looks like this: {:?}", buf);
+                        self.change_state(OutboundState::ClientWrite);
+                        //todo: register event loop 
+                        udp_server.send_to(&mut bytes::SliceBuf::wrap(buf.as_slice()), &self.rx_addr);        
+                        println!("Wrote the reply?!?!?!");
+                    },
+                    Ok(None) => println!("Got no data"),
+                    Err(e) => println!("Receive failed {:?}", e)
+                }
+            },
+            OutboundState::ClientWrite => {
+                //assert!();
+            }
         }
     }
 }
@@ -119,14 +169,14 @@ impl mio::Handler for MioServer {
                 }
             },
             _ => {
-                let rx_conn = self.rx_connections.get(token);
+                let rx_conn = self.rx_connections.get_mut(token);
                 if rx_conn.is_some() {
-                    rx_conn.unwrap().socket_ready(token, events);
+                    rx_conn.unwrap().socket_ready(event_loop, token, events);
                     return;
                 }
-                let tx_conn = self.tx_connections.get(token);
+                let tx_conn = self.tx_connections.get_mut(token);
                 if tx_conn.is_some() {
-                    tx_conn.unwrap().socket_ready(token, events);
+                    tx_conn.unwrap().socket_ready(event_loop, token, events, &self.udp_server);
                     return;
                 }
                 panic!("Unknown token. Memory leak");
@@ -157,49 +207,13 @@ fn accept_udp_connection(mio_server: &mut MioServer, event_loop: &mut EventLoop<
 
 
             println!("Processing as txn: {:?}", rx_token);
-
-            //let tx_addr = format!("8.8.8.8:{:?}", 53).parse().unwrap();
-            let tx = UdpSocket::v4().unwrap();
-            
+            let tx = UdpSocket::v4().unwrap();            
             let tx_token = mio_server.tx_connections
-                                .insert_with(|tx_token| OutboundConnection::new(tx_token, rx_token))
+                                .insert_with(|tx_token| OutboundConnection::new(tx_token, tx, buf, rx_token, addr))
                                 .unwrap();
 
             println!("Upstream token is {:?}", tx_token);
-            let _ = event_loop.register_opt(&tx, tx_token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
-
-            
-
-            //event_loop.register(tx, writable, new token)
-                //write the buffer
-                    //event_loop.reregister(tx, readable, old token)
-                    // read buffer
-                        //event_loop.reregister(rx, writable, old token)
-                            //write buffer.
-
-            //let tx_listen_addr = format!("0.0.0.0:{:?}", 0).parse().unwrap();
-            //tx.bind(&tx_listen_addr);
-            // println!("Sending buf to {:?}", tx_addr);
-            // let mut send_buf = mio::buf::SliceBuf::wrap(buf.as_slice());
-            // match tx.send_to(&mut send_buf, &tx_addr) {
-            //     Ok(Some(n)) => {println!("Sent some data: {:?} to: {:?}", n, tx_addr)},
-            //     Ok(None) => {println!("Failed to send data")},
-            //     Err(e) => {println!("Error sending {:?}", e)}
-            // }
-
-            // thread::sleep(Duration::new(2,0));
-
-            // //request forwarded (with some id in it)
-            // //now listen on...what...for response?
-            // let mut response_buf = Vec::<u8>::new();
-            // match tx.recv_from(&mut response_buf) {
-            //     Ok(Some(add)) => {
-            //         println!("Got a response from {:?}. Bytes were {:?}", add, response_buf.len() );
-            //     },
-            //     Ok(None) => { println!("Didn't receive anything")},
-            //     Err(e) => println!("Error receiving {:?}", e)
- 
-            // }
+            let _ = event_loop.register_opt(&mio_server.tx_connections[tx_token].tx_socket, tx_token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
 
             return true;
             

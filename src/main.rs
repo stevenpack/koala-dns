@@ -1,3 +1,4 @@
+#![feature(convert)]
 extern crate getopts;
 extern crate mio;
 
