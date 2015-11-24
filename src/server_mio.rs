@@ -5,10 +5,11 @@ use mio::{Evented, Token, EventLoop, EventSet, PollOpt};
 use mio::udp::UdpSocket;
 use mio::util::Slab;
 use std::net::SocketAddr;
+//use std::str::FromStr;
 //use std::thread;
 //use std::time::Duration;
 //use std::io::{Read,Write};
-use mio::buf::{SliceBuf,Buf};
+use mio::buf::{SliceBuf};
 /*
 Public shown to main
 */            //todo: get guidance from carllerche on when you need to reregister
@@ -25,116 +26,113 @@ Internal
 */
 struct MioServer {
     udp_server: UdpSocket,
-    rx_connections: Slab<InboundConnection>,
-    tx_connections: Slab<OutboundConnection>
+    udp_transactions: Slab<UdpTransaction>,
 }
 
 #[derive(Debug)]
-struct InboundConnection {
-    rx_token: Token,
-    rx_addr: SocketAddr,
-    query: Option<u32> //type: tbd
+enum State {
+    AcceptClient,
+    ForwardRequest,
+    ReceiveResponse,
+    AnswerClient,
+    Close
 }
-
+/*
+Encapsulates the components of a Resolution request and response over Udp.
+*/
 #[derive(Debug)]
-enum OutboundState {
-    UpstreamWrite,
-    UpstreamRead,
-    ClientWrite
-}
-
-#[derive(Debug)]
-struct OutboundConnection {
-    state: OutboundState,
-    tx_token: Token,
-    tx_socket: UdpSocket,
+struct UdpTransaction {
+    state: State,
+    client_addr: SocketAddr,
+    upstream_token: Token,
+    upstream_socket: UdpSocket,    
     query_buf: Vec<u8>,
-    rx_token: Token,
-    rx_addr: SocketAddr,
-    response: Vec<u8> //type:tbd
-
+    response_buf: Vec<u8>
 }
 
-impl InboundConnection {
-    fn new(rx_token: Token, rx_addr: SocketAddr) -> InboundConnection {
-        let conn = InboundConnection {
-            rx_token: rx_token,
-            rx_addr: rx_addr,
-            query: None
-        };
-        return conn;
-    }
+impl UdpTransaction {
 
-    fn socket_ready(&self, event_loop: &mut EventLoop<MioServer>, token: Token, events: EventSet) {
-        println!("I'm ready to write the client some data!!!");
-    }
-}
-
-impl OutboundConnection {
-
-    fn new(tx_token: Token, tx_socket: UdpSocket, query_buf: Vec<u8>, rx_token: Token, rx_addr: SocketAddr) -> OutboundConnection {
-        return OutboundConnection {
-            state: OutboundState::UpstreamWrite,
-            tx_token: tx_token,
-            tx_socket: tx_socket,
+    fn new(client_addr: SocketAddr, upstream_token: Token, query_buf: Vec<u8>) -> UdpTransaction {
+        println!("New UDP transaction");
+        return UdpTransaction {
+            state: State::AcceptClient,
+            client_addr: client_addr,
+            upstream_token: upstream_token,
+            //not ideal, might fail
+            upstream_socket: UdpSocket::v4().unwrap(),    
             query_buf: query_buf,
-            rx_token: rx_token,
-            rx_addr: rx_addr,
-            response: Vec::<u8>::new()
-        }
+            response_buf: Vec::<u8>::new()
+        };
     }
 
-    fn change_state(&mut self, state: OutboundState) {
+    // fn get_state(&self) -> &State {
+    //     return &self.state;
+    // }
+
+    fn change_state(&mut self, state: State) {
         self.state = state;
     }
 
     fn socket_ready(&mut self, event_loop: &mut EventLoop<MioServer>, token: Token, events: EventSet, udp_server: &UdpSocket) {
-        println!("I'm ready to write or read some data from upstream!");
+        
+        println!("Socket Event. State: {:?} Token: {:?} EventSet: {:?}", self.state, token, events);
+        //todo: extract to metods
 
         match self.state {
-            OutboundState::UpstreamWrite => {
+            State::AcceptClient => {
+                self.change_state(State::ForwardRequest);
+                let _ = event_loop.register_opt(&self.upstream_socket, self.upstream_token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
+            },
+            State::ForwardRequest => {
                 assert!(events.is_writable());
-                println!("And the winner is... WRITING. Read token is: {:?}. Write token is: {:?}", self.rx_token, self.tx_token);            
-                let tx_addr = format!("8.8.8.8:{:?}", 53).parse().unwrap();
+                println!("And the winner is... WRITING. Read token is: {:?}. Write token is: {:?}", self.upstream_token, self.upstream_token);            
+                let upstream_addr = format!("8.8.8.8:{:?}", 53).parse().unwrap();
                 //todo: what to pass the query buf around as?
-                match self.tx_socket.send_to(&mut bytes::SliceBuf::wrap(self.query_buf.as_slice()), &tx_addr) {
+                match self.upstream_socket.send_to(&mut bytes::SliceBuf::wrap(self.query_buf.as_slice()), &upstream_addr) {
                     Ok(Some(_)) => {
-                        self.change_state(OutboundState::UpstreamRead);
+                        //todo log bytes
+                        self.change_state(State::ReceiveResponse);
                         println!("Transitioned to read");
-                        let _ = event_loop.register_opt(&self.tx_socket, token, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
+                        let _ = event_loop.register_opt(&self.upstream_socket, token, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
                     },
                     Ok(None) => {println!("Failed to send. What now? Event fires again..?")}
                     Err(e) => println!("Failed to write {:?}", e)
                     //todo: free resources
                 }
             }
-            OutboundState::UpstreamRead => {
+            State::ReceiveResponse => {
                 assert!(events.is_readable());
                 println!("And the winner is... READING");
                 let mut buf = Vec::<u8>::new();
-                match self.tx_socket.recv_from(&mut buf) {
+                match self.upstream_socket.recv_from(&mut buf) {
                     Ok(Some(addr)) => {            
                         println!("received data from {:?}. Maybe even a DNS reply?", addr);                        
                         println!("Looks like this: {:?}", buf);
-                        self.response = buf;
-                        self.change_state(OutboundState::ClientWrite);
+                        self.response_buf = buf;
+                        self.change_state(State::AnswerClient);
                         //register the server socket to write.
-                        event_loop.register_opt(udp_server, token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
+                        //todo: does this stop us reading... should we stay readable to accept new connetions?
+                        let _ = event_loop.register_opt(udp_server, token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
                         println!("Wrote the reply?!?!?!");
                     },
                     Ok(None) => println!("Got no data"),
                     Err(e) => println!("Receive failed {:?}", e)
                 }
             },
-            OutboundState::ClientWrite => {
+            State::AnswerClient => {
                 assert!(events.is_writable());
                 println!("READY TO WRITE TO THE CLIENT");
-                udp_server.send_to(&mut SliceBuf::wrap(&self.response), &self.rx_addr);        
+                let _ = udp_server.send_to(&mut SliceBuf::wrap(&self.response_buf), &self.client_addr);        
+                //todo: log bytes sent and failure
                 println!("done");
+                self.change_state(State::Close);
                 //register the server socket to read
                 reregister(event_loop, udp_server, UDP_SERVER_TOKEN);
                 //todo: remove
                 //get rid of InboundConnection into Connection/Transaction/State struct
+            },
+            State::Close => {
+                panic!("Should not be firing socket events when closed. Token: {:?}", token);
             }
         }
     }
@@ -171,23 +169,31 @@ impl mio::Handler for MioServer {
     fn ready(&mut self, event_loop: &mut EventLoop<MioServer>, token: mio::Token, events: mio::EventSet) {
         match token {           
             UDP_SERVER_TOKEN => { 
-                let is_reregister = accept_udp_connection(self, event_loop);
-                if is_reregister {
-                    reregister(event_loop, &self.udp_server, token);
-                }
+
+                let mut buf = Vec::<u8>::new();
+                match self.udp_server.recv_from(&mut buf) {
+                    Ok(Some(addr)) => {            
+                       let new_tok = self.udp_transactions.insert_with(|tok| UdpTransaction::new(addr, tok, buf));
+                       println!("Print new token {:?}", new_tok);
+                       self.udp_transactions[new_tok.unwrap()].socket_ready(event_loop, token, events, &self.udp_server);
+                    },
+                    Ok(None) => println!("Socket not ready to receive. Need to re-register?"),
+                    Err(e) => println!("Receive failed {:?}", e)
+                };
             },
             _ => {
-                // let rx_conn = self.rx_connections.get_mut(token);
-                // if rx_conn.is_some() {
-                //     rx_conn.unwrap().socket_ready(event_loop, token, events);
-                //     return;
-                // }
-                let tx_conn = self.tx_connections.get_mut(token);
-                if tx_conn.is_some() {
-                    tx_conn.unwrap().socket_ready(event_loop, token, events, &self.udp_server);
-                    return;
+                //Handling events on the upstream socket, or a write on the server socket
+                let udp_txn = self.udp_transactions.get_mut(token);
+                if udp_txn.is_some() {
+                    udp_txn.unwrap().socket_ready(event_loop, token, events, &self.udp_server);
+                //let s = udp_txn.unwrap().get_state();
+                    // match s {
+                    //     State::Close => self.udp_transactions.remove(token)
+                        
+                    // }             
+                    return;       
                 }
-                panic!("Unknown token. Memory leak");
+                panic!("Unknown token. Memory leak. Token");
            }
         }
     }
@@ -199,41 +205,6 @@ fn reregister(event_loop: &mut EventLoop<MioServer>, evented: &mio::Evented, tok
 }
 
 
-fn accept_udp_connection(mio_server: &mut MioServer, event_loop: &mut EventLoop<MioServer>) -> bool {
-    println!("the server socket is ready to accept a UDP connection");
-    //note: sampel echo server uses MutSliceBuf with a pre-allocated size. Would be faster,
-    //      but it's awkward to handle except for writing to sockets (how to convert to string for debugging?)
-    
-    //todo: guaranteed to read the whole packet?
-    let mut buf = Vec::<u8>::new();
-    match mio_server.udp_server.recv_from(&mut buf) {
-        Ok(Some(addr)) => {            
-            println!("received data from {:?}", addr);
-
-            let rx_token = mio_server.rx_connections
-                            .insert_with(|rx_token| InboundConnection::new(rx_token, addr))
-                            .unwrap();
-
-
-            println!("Processing as txn: {:?}", rx_token);
-            let tx = UdpSocket::v4().unwrap();            
-            let tx_token = mio_server.tx_connections
-                                .insert_with(|tx_token| OutboundConnection::new(tx_token, tx, buf, rx_token, addr))
-                                .unwrap();
-
-            println!("Upstream token is {:?}", tx_token);
-            let _ = event_loop.register_opt(&mio_server.tx_connections[tx_token].tx_socket, tx_token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
-            println!("GOT HERE");
-            return true;
-            
-        }
-        Ok(None) => println!("The udp socket wasn't actually ready"),
-        Err(e) => println!("couldn't receive a datagram: {}", e)
-    }    
-    //todo: get guidance from carllerche on when you need to reregister
-    return false;
-}
-
 fn start(udp_server: mio::udp::UdpSocket) {
 
     let mut event_loop = mio::EventLoop::new().unwrap();
@@ -243,8 +214,7 @@ fn start(udp_server: mio::udp::UdpSocket) {
     //todo: strategy for number of connections.
     let mut mio_server = MioServer {
         udp_server: udp_server,
-        rx_connections: Slab::new_starting_at(mio::Token(UDP_SERVER_TOKEN.as_usize()), 1024),
-        tx_connections: Slab::new_starting_at(mio::Token(1025), 2048)
+        udp_transactions: Slab::new_starting_at(mio::Token(2), 1024),
     };
     let _ = event_loop.run(&mut mio_server);
     
