@@ -21,6 +21,14 @@ pub trait Start {
     fn start(&self);
 }
 
+impl Start for Server {
+    fn start(&self) {
+        println!("Starting server on port {}", self.port);        
+        let address = format!("0.0.0.0:{:?}", self.port).parse().unwrap();        
+        MioServer::start(address);
+    }    
+}
+
 /*
 Internal
 */
@@ -30,6 +38,7 @@ struct MioServer {
 }
 
 #[derive(Debug)]
+#[derive(PartialEq)]
 enum State {
     AcceptClient,
     ForwardRequest,
@@ -80,19 +89,18 @@ impl UdpTransaction {
 
         match self.state {
             State::AcceptClient => {
+                assert!(events.is_readable());
                 self.change_state(State::ForwardRequest);
                 let _ = event_loop.register_opt(&self.upstream_socket, self.upstream_token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
             },
             State::ForwardRequest => {
                 assert!(events.is_writable());
-                println!("And the winner is... WRITING. Read token is: {:?}. Write token is: {:?}", self.upstream_token, self.upstream_token);            
                 let upstream_addr = format!("8.8.8.8:{:?}", 53).parse().unwrap();
                 //todo: what to pass the query buf around as?
                 match self.upstream_socket.send_to(&mut bytes::SliceBuf::wrap(self.query_buf.as_slice()), &upstream_addr) {
                     Ok(Some(_)) => {
                         //todo log bytes
                         self.change_state(State::ReceiveResponse);
-                        println!("Transitioned to read");
                         let _ = event_loop.register_opt(&self.upstream_socket, token, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
                     },
                     Ok(None) => {println!("Failed to send. What now? Event fires again..?")}
@@ -102,7 +110,6 @@ impl UdpTransaction {
             }
             State::ReceiveResponse => {
                 assert!(events.is_readable());
-                println!("And the winner is... READING");
                 let mut buf = Vec::<u8>::new();
                 match self.upstream_socket.recv_from(&mut buf) {
                     Ok(Some(addr)) => {            
@@ -113,7 +120,6 @@ impl UdpTransaction {
                         //register the server socket to write.
                         //todo: does this stop us reading... should we stay readable to accept new connetions?
                         let _ = event_loop.register_opt(udp_server, token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
-                        println!("Wrote the reply?!?!?!");
                     },
                     Ok(None) => println!("Got no data"),
                     Err(e) => println!("Receive failed {:?}", e)
@@ -122,42 +128,32 @@ impl UdpTransaction {
             State::AnswerClient => {
                 assert!(events.is_writable());
                 println!("READY TO WRITE TO THE CLIENT");
-                let _ = udp_server.send_to(&mut SliceBuf::wrap(&self.response_buf), &self.client_addr);        
+                match udp_server.send_to(&mut SliceBuf::wrap(&self.response_buf), &self.client_addr) {
+
+                    Ok(Some(n)) => println!("{} bytes sent", n),
+                    Ok(None) => println!("No bytes sent"),
+                    Err(e) => println!("Failed to send. Error was {:?}", e)
+                }        
                 //todo: log bytes sent and failure
                 println!("done");
                 self.change_state(State::Close);
                 //register the server socket to read
-                reregister(event_loop, udp_server, UDP_SERVER_TOKEN);
-                //todo: remove
-                //get rid of InboundConnection into Connection/Transaction/State struct
+                self.reregister_server(event_loop, udp_server, UDP_SERVER_TOKEN);
             },
             State::Close => {
                 panic!("Should not be firing socket events when closed. Token: {:?}", token);
             }
         }
     }
+
+
+    fn reregister_server(&self, event_loop: &mut EventLoop<MioServer>, evented: &mio::Evented, token: Token) {
+        println!("re-registered: {:?}", token);
+        let _ = event_loop.reregister(evented, token, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
+    }
 }
 
-impl Start for Server {
-    fn start(&self) {
-        println!("Starting server on port {}", self.port);        
-        let address = format!("0.0.0.0:{:?}", self.port).parse().unwrap();        
-        let udp_server = bind_udp(address);
-        start(udp_server);
-    }    
-}
 
-fn bind_udp(address: SocketAddr) -> mio::udp::UdpSocket {
-    println!("Binding UDP to {:?}", address);
-    let udp_socket = mio::udp::UdpSocket::v4().unwrap();
-    let _ = match udp_socket.bind(&address) {
-        Ok(s) => s,
-        Err(e) => {
-            panic!("Failed to bind UDP. Error was {}", e);
-        }
-    };
-    return udp_socket;
-}
 
 const UDP_SERVER_TOKEN: mio::Token = mio::Token(1);
 
@@ -168,57 +164,67 @@ impl mio::Handler for MioServer {
     #[allow(unused_variables)]
     fn ready(&mut self, event_loop: &mut EventLoop<MioServer>, token: mio::Token, events: mio::EventSet) {
         match token {           
-            UDP_SERVER_TOKEN => { 
-
-                let mut buf = Vec::<u8>::new();
-                match self.udp_server.recv_from(&mut buf) {
-                    Ok(Some(addr)) => {            
-                       let new_tok = self.udp_transactions.insert_with(|tok| UdpTransaction::new(addr, tok, buf));
-                       println!("Print new token {:?}", new_tok);
-                       self.udp_transactions[new_tok.unwrap()].socket_ready(event_loop, token, events, &self.udp_server);
-                    },
-                    Ok(None) => println!("Socket not ready to receive. Need to re-register?"),
-                    Err(e) => println!("Receive failed {:?}", e)
-                };
-            },
+            UDP_SERVER_TOKEN => self.accept_udp_connection(event_loop, token, events),
             _ => {
                 //Handling events on the upstream socket, or a write on the server socket
-                let udp_txn = self.udp_transactions.get_mut(token);
-                if udp_txn.is_some() {
-                    udp_txn.unwrap().socket_ready(event_loop, token, events, &self.udp_server);
-                //let s = udp_txn.unwrap().get_state();
-                    // match s {
-                    //     State::Close => self.udp_transactions.remove(token)
-                        
-                    // }             
-                    return;       
+                self.udp_transactions[token].socket_ready(event_loop, token, events, &self.udp_server);
+                if self.udp_transactions[token].state == State::Close {
+                    self.udp_transactions.remove(token);
+                    println!("Removed {:?}", token);
                 }
-                panic!("Unknown token. Memory leak. Token");
            }
         }
     }
 }
 
-fn reregister(event_loop: &mut EventLoop<MioServer>, evented: &mio::Evented, token: Token) {
-    println!("re-registered: {:?}", token);
-    let _ = event_loop.reregister(evented, token, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
-}
+impl MioServer {
+    fn accept_udp_connection(&mut self, event_loop: &mut EventLoop<MioServer>, token: mio::Token, events: mio::EventSet) {
+        let mut buf = Vec::<u8>::new();
+        match self.udp_server.recv_from(&mut buf) {
+            Ok(Some(addr)) => {            
+               match self.udp_transactions.insert_with(|tok| UdpTransaction::new(addr, tok, buf)) {
+                    Some(new_tok) => {
+                        println!("Token for this transaction is {:?}", new_tok);
+                        self.udp_transactions[new_tok].socket_ready(event_loop, token, events, &self.udp_server);
+                    },
+                    None => {
+                        println!("Unable to start new transaction. Add to slab failed.");
+                    }
+               }
+            },
+            Ok(None) => println!("Socket not ready to receive. Need to re-register?"),
+            Err(e) => println!("Receive failed {:?}", e)
+        };
+    }
 
+    fn bind_udp(address: SocketAddr) -> mio::udp::UdpSocket {
+        println!("Binding UDP to {:?}", address);
+        let udp_socket = mio::udp::UdpSocket::v4().unwrap();
+        let _ = match udp_socket.bind(&address) {
+            Ok(s) => s,
+            Err(e) => {
+                panic!("Failed to bind UDP. Error was {}", e);
+            }
+        };
+        return udp_socket;
+    }
 
-fn start(udp_server: mio::udp::UdpSocket) {
+    fn start(address: SocketAddr) {
+        let udp_server = MioServer::bind_udp(address);
 
-    let mut event_loop = mio::EventLoop::new().unwrap();
-    let _ = event_loop.register_opt(&udp_server, UDP_SERVER_TOKEN, mio::EventSet::readable(), mio::PollOpt::edge() | mio::PollOpt::oneshot());
+        let mut event_loop = mio::EventLoop::new().unwrap();
+        let _ = event_loop.register_opt(&udp_server, UDP_SERVER_TOKEN, mio::EventSet::readable(), mio::PollOpt::edge() | mio::PollOpt::oneshot());
 
-    println!("running mio server");
-    //todo: strategy for number of connections.
-    let mut mio_server = MioServer {
-        udp_server: udp_server,
-        udp_transactions: Slab::new_starting_at(mio::Token(2), 1024),
-    };
-    let _ = event_loop.run(&mut mio_server);
-    
-    drop(mio_server.udp_server);
+        println!("running mio server");
+        //todo: strategy for number of connections.
+        let mut mio_server = MioServer {
+            udp_server: udp_server,
+            udp_transactions: Slab::new_starting_at(mio::Token(2), 1024),
+        };
+        let _ = event_loop.run(&mut mio_server);
+        
+        drop(mio_server.udp_server);
+    }
 }
 
 #[cfg(test)]
