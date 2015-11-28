@@ -12,6 +12,29 @@ pub struct MioServer {
     upstream_server: SocketAddr
 }
 
+const UDP_SERVER_TOKEN: mio::Token = mio::Token(1);
+
+impl mio::Handler for MioServer {
+    type Timeout = ();
+    type Message = ();
+
+    fn ready(&mut self, event_loop: &mut EventLoop<MioServer>, token: mio::Token, events: mio::EventSet) {
+        match token {
+            UDP_SERVER_TOKEN => self.accept_udp_connection(event_loop, token, events),
+            client_token => {
+                // Handling events on the upstream socket, or a write on the server socket
+                self.udp_transactions[client_token].socket_ready(event_loop, client_token, events, &self.udp_server);
+                if self.udp_transactions[client_token].state == State::Close {
+                    //todo: doing this causes a panic after the handler?
+                    //let _ = event_loop.deregister(&self.udp_transactions[token].upstream_socket);
+                    self.udp_transactions.remove(client_token);
+                    debug!("Removed {:?}", client_token);
+                }
+            }
+        }
+    }
+}
+
 impl MioServer {
 
     fn receive(&self, socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
@@ -123,28 +146,19 @@ impl UdpTransaction {
         self.reregister_server(event_loop, udp_server, UDP_SERVER_TOKEN);
 
         //Register upstream socket to write
-        let _ = event_loop.register_opt(&self.upstream_socket,
-                                    self.upstream_token,
-                                    EventSet::writable(),
-                                    PollOpt::edge() | PollOpt::oneshot());
+        let _ = event_loop.register_opt(&self.upstream_socket, self.upstream_token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
 
         self.set_state(State::ForwardRequest);
     }
 
     #[allow(unused_variables)]
     fn forward_request(&mut self, event_loop: &mut EventLoop<MioServer>, token: Token, events: EventSet, udp_server: &UdpSocket) {
-         assert!(events.is_writable());
-        //todo: upstream
-        // todo: what to pass the query buf around as?
+        assert!(events.is_writable());
         match self.upstream_socket.send_to(&mut self::bytes::SliceBuf::wrap(self.query_buf.as_slice()), &self.upstream_addr) {
             Ok(Some(_)) => {
-                //todo log bytes
                 //todo: timeout
                 self.set_state(State::ReceiveResponse);
-                let _ = event_loop.register_opt(&self.upstream_socket,
-                                                token,
-                                                EventSet::readable(),
-                                                PollOpt::edge() | PollOpt::oneshot());
+                let _ = event_loop.register_opt(&self.upstream_socket, token, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
             }
             Ok(None) => debug!("Failed to send. Expect writable event to fire again still in the same state. {:?}", token),
             Err(e) => error!("Failed to write to upstream_socket. {:?}. {:?}", token, e),
@@ -164,10 +178,7 @@ impl UdpTransaction {
                 // register the server socket to write.
                 // todo: does this stop us reading...
                 // carlleche? should we stay readable to accept new connetions?
-                let _ = event_loop.register_opt(udp_server,
-                                                token,
-                                                EventSet::writable(),
-                                                PollOpt::edge() | PollOpt::oneshot());
+                let _ = event_loop.register_opt(udp_server, token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
             }
             Ok(None) => debug!("No data received on upstream_socket. {:?}", token),
             Err(e) => println!("Receive failed on {:?}. {:?}", token, e),
@@ -199,42 +210,11 @@ impl UdpTransaction {
         }
     }
 
-    fn reregister_server(&self,
-                         event_loop: &mut EventLoop<MioServer>,
-                         evented: &mio::Evented,
-                         token: Token) {
+    fn reregister_server(&self, event_loop: &mut EventLoop<MioServer>, evented: &mio::Evented, token: Token) {
         debug!("Re-registered: {:?}", token);
-        let _ = event_loop.reregister(evented,
-                                      token,
-                                      EventSet::readable(),
-                                      PollOpt::edge() | PollOpt::oneshot());
+        let _ = event_loop.reregister(evented, token, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
     }
 }
-
-const UDP_SERVER_TOKEN: mio::Token = mio::Token(1);
-
-impl mio::Handler for MioServer {
-    type Timeout = ();
-    type Message = ();
-
-    fn ready(&mut self, event_loop: &mut EventLoop<MioServer>, token: mio::Token, events: mio::EventSet) {
-        match token {
-            UDP_SERVER_TOKEN => self.accept_udp_connection(event_loop, token, events),
-            client_token => {
-                // Handling events on the upstream socket, or a write on the server socket
-                self.udp_transactions[client_token].socket_ready(event_loop, client_token, events, &self.udp_server);
-                if self.udp_transactions[client_token].state == State::Close {
-                    //todo: doing this causes a panic after the handler?
-                    //let _ = event_loop.deregister(&self.udp_transactions[token].upstream_socket);
-                    self.udp_transactions.remove(client_token);
-                    debug!("Removed {:?}", client_token);
-                }
-            }
-        }
-    }
-}
-
-
 
 #[cfg(test)]
 mod tests {
