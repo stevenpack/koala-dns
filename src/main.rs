@@ -6,14 +6,15 @@ extern crate log;
 extern crate env_logger;
 
 mod command_line;
+mod server;
 mod server_mio;
 
-use server_mio::Start;
+use server::Start;
 
 fn main() {
 	env_logger::init().unwrap_or_else(|err| println!("Failed to initialize logger. {:?}", err));
 
     let config = command_line::parse_args();
-    let server = server_mio::Server { port: config.port };
+    let server = server::Server { port: config.port, upstream_server: config.server };
     server.start();
 }
