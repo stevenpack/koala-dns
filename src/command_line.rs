@@ -14,7 +14,7 @@ pub fn parse_args() -> Config {
     opts.optopt("p", "port", "Port to listen on", "53");
     opts.optflag("h", "help", "print this help menu");
 
-    println!("Parsing command ine options");
+    debug!("Parsing command line options");
     let matches = match opts.parse(&args[1..]) {
         Ok(m) => m,
         Err(e) => panic!(e.to_string()),
@@ -24,14 +24,14 @@ pub fn parse_args() -> Config {
         process::exit(0);
     }
 
-    println!("Parsing port...");
+    debug!("Parsing port...");
 
     let mut port = "53".to_string();
     if matches.opt_present("p") {
         port = matches.opt_str("p").unwrap();
     }
 
-    println!("Port is {:?}", port);
+    debug!("Port is {:?}", port);
 
     let p: i32 = match port.parse::<i32>() {
         Ok(x) => x,
@@ -43,5 +43,5 @@ pub fn parse_args() -> Config {
 
 fn print_usage(program: &str, opts: Options) {
     let brief = format!("Usage: {} [options]", program);
-    print!("{}", opts.usage(&brief));
+    println!("{}", opts.usage(&brief));
 }
