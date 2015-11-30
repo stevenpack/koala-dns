@@ -1,0 +1,8 @@
+/*{
+  "cmd": "rustc",
+  "args": [ "-v","{FILE_ACTIVE}", "--out-dir", "{FILE_ACTIVE_PATH}" ],
+  "sh": false,
+  "cwd": "{PROJECT_PATH}",
+  "errorMatch": "^(?<file>[^\\.]+.rs):(?<line>\\d+):(?<col>\\d+)",
+  "keymap": "alt-c"
+}*/
