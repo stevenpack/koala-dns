@@ -96,7 +96,7 @@ impl UdpRequest {
     }
 
     fn send(&self, socket: &UdpSocket) {
-        match socket.send_to(&mut self::bytes::SliceBuf::wrap(&self.response_buf), &self.client_addr) {
+        match socket.send_to(&mut self::bytes::SliceBuf::wrap(&self.response_buf.as_slice()), &self.client_addr) {
             Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, self.client_addr),
             Err(e) => error!("Failed to send. {:?} Error was {:?}", self.client_addr, e),
         }
@@ -111,36 +111,40 @@ impl Handler for MioServer {
 
     fn ready(&mut self, event_loop: &mut EventLoop<MioServer>, token: Token, events: EventSet) {
         match token {
-            UDP_SERVER_TOKEN => {
-                if events.is_readable() {
-                    self.accept(event_loop, events);
-                }
-                if events.is_writable() {
-                    self.send_reply();
-                }
-                //We are always listening for new requests. The server socket will be regregistered
-                //as writable if there are responses to write
-                self.reregister_server(event_loop, EventSet::readable());
-            },
-            client_token => {
-                self.requests[client_token].ready(event_loop, client_token, events);
-                if self.requests[client_token].state == RequestState::ResponseReceived {
-                    match self.requests.remove(client_token) {
-                        Some(request) => {
-                            debug!("Removed {:?} from pending requests.", client_token);
-                            self.responses.push(request);
-                            debug!("Added {:?} to pending replies", client_token);
-                        },
-                        None => warn!("No request found {:?}", client_token)
-                    }
-                    self.reregister_server(event_loop, EventSet::readable() | EventSet::writable());
-                }
-            }
+            UDP_SERVER_TOKEN => self.server_ready(event_loop, events),
+            client_token => self.upstream_ready(event_loop, events, client_token)
         }
     }
 }
 
 impl MioServer {
+
+    fn server_ready(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
+        if events.is_readable() {
+            self.accept(event_loop, events);
+        }
+        if events.is_writable() {
+            self.send_reply();
+        }
+        //We are always listening for new requests. The server socket will be regregistered
+        //as writable if there are responses to write
+        self.reregister_server(event_loop, EventSet::readable());
+    }
+
+    fn upstream_ready(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet, client_token: Token) {
+        self.requests[client_token].ready(event_loop, client_token, events);
+        if self.requests[client_token].state == RequestState::ResponseReceived {
+            match self.requests.remove(client_token) {
+                Some(request) => {
+                    debug!("Removed {:?} from pending requests.", client_token);
+                    self.responses.push(request);
+                    debug!("Added {:?} to pending replies", client_token);
+                },
+                None => warn!("No request found {:?}", client_token)
+            }
+            self.reregister_server(event_loop, EventSet::readable() | EventSet::writable());
+        }
+    }
 
     fn send_reply(&mut self) {
         debug!("There are {} responses to send", self.responses.len());
