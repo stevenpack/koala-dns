@@ -5,6 +5,7 @@ use mio::{Evented, Token, EventLoop, EventSet, PollOpt, Handler, Timeout};
 use mio::udp::UdpSocket;
 use mio::util::Slab;
 use std::net::SocketAddr;
+use udp_request::{UdpRequest, RequestState};
 
 pub struct MioServer {
     udp_server: UdpSocket,
@@ -14,114 +15,7 @@ pub struct MioServer {
     responses: Vec<UdpRequest>
 }
 
-#[derive(Debug)]
-#[derive(PartialEq)]
-enum RequestState {
-    New,
-    Accepted,
-    Forwarded,
-    ResponseReceived
-}
 
-//
-// Encapsulates the components of a Resolution request and response over Udp.
-//
-//#[derive(Debug)]
-struct UdpRequest {
-    state: RequestState,
-    client_addr: SocketAddr,
-    upstream_token: Token,
-    upstream_socket: UdpSocket,
-    upstream_addr: SocketAddr,
-    query_buf: Vec<u8>,
-    response_buf: Vec<u8>,
-    timeout_ms: u64,
-    timeout_handle: Option<Timeout>
-}
-
-
-impl UdpRequest {
-    fn new(client_addr: SocketAddr, upstream_token: Token, upstream_addr: SocketAddr, query_buf: Vec<u8>, timeout: u64) -> UdpRequest {
-        debug!("New UDP transaction: {:?}", upstream_token);
-        return UdpRequest {
-            state: RequestState::New,
-            client_addr: client_addr,
-            upstream_token: upstream_token,
-            //handle this by Option<> and error! the request but do not panic
-            upstream_socket: UdpSocket::v4().unwrap_or_else(|e| panic!("Failed to create UDP socket {:?}", e)),
-            upstream_addr: upstream_addr,
-            query_buf: query_buf,
-            response_buf: Vec::<u8>::new(),
-            timeout_ms: timeout,
-            timeout_handle: None
-        };
-    }
-
-    fn set_state(&mut self, state: RequestState) {
-        debug!("{:?} -> {:?}", self.state, state);
-        self.state = state;
-    }
-
-    fn set_timeout(&mut self, timeout: Timeout) {
-        self.timeout_handle = Some(timeout);
-    }
-
-    fn ready(&mut self, event_loop: &mut EventLoop<MioServer>, token: Token, events: EventSet) {
-        debug!("Socket Event. State: {:?} {:?} EventSet: {:?}", self.state, token, events);
-        match self.state {
-            RequestState::New => {
-                assert!(events.is_readable());
-                //Register upstream socket to write
-                let _ = event_loop.register_opt(&self.upstream_socket, self.upstream_token, EventSet::writable(), PollOpt::edge() | PollOpt::oneshot());
-                self.set_state(RequestState::Accepted);
-            },
-            RequestState::Accepted => {
-                assert!(events.is_writable());
-                match self.upstream_socket.send_to(&mut self::bytes::SliceBuf::wrap(self.query_buf.as_slice()), &self.upstream_addr) {
-                    Ok(Some(_)) => {
-                        //todo: timeout
-                        self.set_state(RequestState::Forwarded);
-                        let _ = event_loop.register_opt(&self.upstream_socket, token, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
-                        match event_loop.timeout_ms(token, self.timeout_ms) {
-                            Ok(t) => self.set_timeout(t),
-                            Err(e) => error!("Failed to schedule timeout for {:?}. {:?}", token, e)
-                        }
-                    }
-                    Ok(None) => debug!("Failed to send. Expect writable event to fire again still in the same state. {:?}", token),
-                    Err(e) => error!("Failed to write to upstream_socket. {:?}. {:?}", token, e),
-                }
-            },
-            RequestState::Forwarded => {
-                assert!(events.is_readable());
-                //todo: higher perf buffer?
-                let mut buf = Vec::<u8>::new();
-                match self.upstream_socket.recv_from(&mut buf) {
-                    Ok(Some(addr)) => {
-                        debug!("Received {} bytes from {:?}", buf.len(), addr);
-                        trace!("{:?}", buf);
-                        self.response_buf = buf;
-                        self.set_state(RequestState::ResponseReceived);
-                        if event_loop.clear_timeout(self.timeout_handle.unwrap()) {
-                            debug!("Timeout cleared for {:?}", token);
-                        } else {
-                            debug!("Could not clear timeout for {:?}", token);
-                        }
-                    }
-                    Ok(None) => debug!("No data received on upstream_socket. {:?}", token),
-                    Err(e) => println!("Receive failed on {:?}. {:?}", token, e),
-                }
-            },
-            _ => error!("Unexpected socket event for {:?}", token)
-        }
-    }
-
-    fn send(&self, socket: &UdpSocket) {
-        match socket.send_to(&mut self::bytes::SliceBuf::wrap(&self.response_buf.as_slice()), &self.client_addr) {
-            Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, self.client_addr),
-            Err(e) => error!("Failed to send. {:?} Error was {:?}", self.client_addr, e),
-        }
-    }
-}
 
 const UDP_SERVER_TOKEN: Token = Token(1);
 
@@ -157,15 +51,71 @@ impl MioServer {
         self.reregister_server(event_loop, EventSet::readable());
     }
 
-    fn upstream_ready(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet, client_token: Token) {
-        self.requests[client_token].ready(event_loop, client_token, events);
-        if self.requests[client_token].state == RequestState::ResponseReceived {
-            let request = self.remove_request(client_token);
-            if request.is_some() {
-                self.responses.push(request.unwrap());
-                debug!("Added {:?} to pending replies", client_token);
+    fn upstream_ready(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet, token: Token) {
+
+        let queue_response = false;
+        {
+            let ref mut request = self.requests[token];
+            request.socket_ready(token, events);
+            match request.state {
+                RequestState::Accepted =>
+                {
+                     MioServer::register_upstream(event_loop, &request.upstream_socket, EventSet::writable(), token)
+                },
+                RequestState::Forwarded =>
+                {
+                    MioServer::register_upstream(event_loop, &request.upstream_socket, EventSet::readable(), token);
+                    MioServer::set_timeout(event_loop, token, request);
+                },
+                RequestState::ResponseReceived =>
+                {
+                    MioServer::clear_timeout(event_loop, token, request);
+
+                }
+                _ => error!("Unexpected state: {:?}", request.state)
             }
+        }
+        if queue_response {
+            self.queue_response(token);
             self.reregister_server(event_loop, EventSet::readable() | EventSet::writable());
+        }
+    }
+
+    fn queue_response(&mut self, token: Token) {
+        let request = self.remove_request(token);
+        if request.is_some() {
+            self.responses.push(request.unwrap());
+            debug!("Added {:?} to pending replies", token);
+        }
+    }
+
+
+    fn clear_timeout(event_loop: &mut EventLoop<MioServer>, token: Token, request: &UdpRequest) {
+        if event_loop.clear_timeout(    request.timeout_handle.unwrap()) {
+            debug!("Timeout cleared for {:?}", token);
+        } else {
+            debug!("Could not clear timeout for {:?}", token);
+        }
+    }
+
+    fn register_upstream<E>(event_loop: &mut EventLoop<MioServer>, io: &E, events: EventSet, token: Token) where E: Evented {
+        event_loop.register_opt(io, token, events, PollOpt::edge() | PollOpt::oneshot())
+            .unwrap_or_else(|e| error!("Failed to register upstream socket. {}", e));
+            //todo fail the reqest
+    }
+
+    fn reregister_server(&self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
+        debug!("Re-registered: {:?} with {:?}", UDP_SERVER_TOKEN, events);
+        let _ = event_loop.reregister(&self.udp_server,
+                                      UDP_SERVER_TOKEN,
+                                      events,
+                                      PollOpt::edge() | PollOpt::oneshot());
+    }
+
+    fn set_timeout(event_loop: &mut EventLoop<MioServer>, token: Token, request: &mut UdpRequest) {
+        match event_loop.timeout_ms(token, request.timeout_ms) {
+            Ok(t) => request.set_timeout(t),
+            Err(e) => error!("Failed to schedule timeout for {:?}. {:?}", token, e)
         }
     }
 
@@ -190,14 +140,6 @@ impl MioServer {
         }
     }
 
-    fn reregister_server(&self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
-        debug!("Re-registered: {:?} with {:?}", UDP_SERVER_TOKEN, events);
-        let _ = event_loop.reregister(&self.udp_server,
-                                      UDP_SERVER_TOKEN,
-                                      events,
-                                      PollOpt::edge() | PollOpt::oneshot());
-    }
-
     fn receive(&self, socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
         let mut buf = Vec::with_capacity(1024);
         match socket.recv_from(&mut buf) {
@@ -213,9 +155,9 @@ impl MioServer {
     fn add_transaction(&mut self, addr: SocketAddr, buf: Vec<u8>) -> Option<Token> {
         let upstream_server = self.upstream_server;
         let timeout_ms = self.timeout;
-        match self.requests.insert_with(|tok| UdpRequest::new(addr, tok, upstream_server, buf, timeout_ms)) {
-            Some(new_tok) => return Some(new_tok),
-            None => { error!("Unable to start new transaction. Add to slab failed."); return None;}
+        match self.requests.insert(UdpRequest::new(addr, upstream_server, buf, timeout_ms)) {
+            Ok(new_tok) => return Some(new_tok),
+            Err(_) => { error!("Unable to start new transaction. Add to slab failed."); return None;}
         };
     }
 
