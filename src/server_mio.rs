@@ -53,7 +53,7 @@ impl MioServer {
 
     fn upstream_ready(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet, token: Token) {
 
-        let queue_response = false;
+        let mut queue_response = false;
         {
             let ref mut request = self.requests[token];
             request.socket_ready(token, events);
@@ -69,6 +69,7 @@ impl MioServer {
                 },
                 RequestState::ResponseReceived =>
                 {
+                    queue_response = true;
                     MioServer::clear_timeout(event_loop, token, request);
 
                 }
