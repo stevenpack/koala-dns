@@ -1,2 +1,2 @@
 # koala-dns
-DNS Server in Rust
+Forwarding DNS Server in Rust
