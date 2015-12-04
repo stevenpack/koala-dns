@@ -1,7 +1,7 @@
 #![feature(convert)]
 extern crate getopts;
 extern crate mio;
-#[macro_use] 
+#[macro_use]
 extern crate log;
 extern crate env_logger;
 
@@ -15,6 +15,10 @@ fn main() {
 	env_logger::init().unwrap_or_else(|err| println!("Failed to initialize logger. {:?}", err));
 
     let config = command_line::parse_args();
-    let server = server::Server { port: config.port, upstream_server: config.server };
+    let server = server::Server {
+		 port: config.port,
+		 upstream_server: config.server,
+		 timeout: config.timeout
+	  };
     server.start();
 }

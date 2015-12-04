@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 pub struct MioServer {
     udp_server: UdpSocket,
     upstream_server: SocketAddr,
+    timeout: u64,
     requests: Slab<UdpRequest>,
     responses: Vec<UdpRequest>
 }
@@ -34,22 +35,25 @@ struct UdpRequest {
     upstream_addr: SocketAddr,
     query_buf: Vec<u8>,
     response_buf: Vec<u8>,
-    timeout: Option<Timeout>
+    timeout_ms: u64,
+    timeout_handle: Option<Timeout>
 }
 
 
 impl UdpRequest {
-    fn new(client_addr: SocketAddr, upstream_token: Token, upstream_addr: SocketAddr, query_buf: Vec<u8>) -> UdpRequest {
+    fn new(client_addr: SocketAddr, upstream_token: Token, upstream_addr: SocketAddr, query_buf: Vec<u8>, timeout: u64) -> UdpRequest {
         debug!("New UDP transaction: {:?}", upstream_token);
         return UdpRequest {
             state: RequestState::New,
             client_addr: client_addr,
             upstream_token: upstream_token,
+            //handle this by Option<> and error! the request but do not panic
             upstream_socket: UdpSocket::v4().unwrap_or_else(|e| panic!("Failed to create UDP socket {:?}", e)),
             upstream_addr: upstream_addr,
             query_buf: query_buf,
             response_buf: Vec::<u8>::new(),
-            timeout: None
+            timeout_ms: timeout,
+            timeout_handle: None
         };
     }
 
@@ -59,7 +63,7 @@ impl UdpRequest {
     }
 
     fn set_timeout(&mut self, timeout: Timeout) {
-        self.timeout = Some(timeout);
+        self.timeout_handle = Some(timeout);
     }
 
     fn ready(&mut self, event_loop: &mut EventLoop<MioServer>, token: Token, events: EventSet) {
@@ -78,7 +82,7 @@ impl UdpRequest {
                         //todo: timeout
                         self.set_state(RequestState::Forwarded);
                         let _ = event_loop.register_opt(&self.upstream_socket, token, EventSet::readable(), PollOpt::edge() | PollOpt::oneshot());
-                        match event_loop.timeout_ms(token, 1000) {
+                        match event_loop.timeout_ms(token, self.timeout_ms) {
                             Ok(t) => self.set_timeout(t),
                             Err(e) => error!("Failed to schedule timeout for {:?}. {:?}", token, e)
                         }
@@ -97,7 +101,7 @@ impl UdpRequest {
                         trace!("{:?}", buf);
                         self.response_buf = buf;
                         self.set_state(RequestState::ResponseReceived);
-                        if event_loop.clear_timeout(self.timeout.unwrap()) {
+                        if event_loop.clear_timeout(self.timeout_handle.unwrap()) {
                             debug!("Timeout cleared for {:?}", token);
                         } else {
                             debug!("Could not clear timeout for {:?}", token);
@@ -208,7 +212,8 @@ impl MioServer {
 
     fn add_transaction(&mut self, addr: SocketAddr, buf: Vec<u8>) -> Option<Token> {
         let upstream_server = self.upstream_server;
-        match self.requests.insert_with(|tok| UdpRequest::new(addr, tok, upstream_server, buf)) {
+        let timeout_ms = self.timeout;
+        match self.requests.insert_with(|tok| UdpRequest::new(addr, tok, upstream_server, buf, timeout_ms)) {
             Some(new_tok) => return Some(new_tok),
             None => { error!("Unable to start new transaction. Add to slab failed."); return None;}
         };
@@ -233,7 +238,7 @@ impl MioServer {
         return udp_socket;
     }
 
-    pub fn start(address: SocketAddr, upstream_server: SocketAddr) {
+    pub fn start(address: SocketAddr, upstream_server: SocketAddr, timeout: u64) {
         let udp_server = MioServer::bind_udp(address);
 
         let mut event_loop = EventLoop::new().unwrap();
@@ -245,8 +250,9 @@ impl MioServer {
         let max_connections = u16::max_value() as usize;
         let mut mio_server = MioServer {
             udp_server: udp_server,
-            requests: Slab::new_starting_at(Token(2), max_connections),
             upstream_server: upstream_server,
+            timeout: timeout,
+            requests: Slab::new_starting_at(Token(2), max_connections),
             responses: Vec::<UdpRequest>::new()
         };
         info!("Mio server running...");

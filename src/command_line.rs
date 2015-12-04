@@ -5,8 +5,9 @@ use std::net::SocketAddr;
 use std::str::FromStr;
 
 pub struct Config {
-    pub port: i32,
-    pub server: SocketAddr
+    pub port: u32,
+    pub server: SocketAddr,
+    pub timeout: u64
 }
 
 pub fn parse_args() -> Config {
@@ -16,6 +17,7 @@ pub fn parse_args() -> Config {
     let mut opts = Options::new();
     opts.optopt("p", "port", "Port to listen on", "53");
     opts.optopt("s", "server", "Upstream server", "8.8.8.8:53");
+    opts.optopt("t", "timeout", "Upstream response timeout in milliseconds", "1000");
     opts.optflag("h", "help", "print this help menu");
 
     debug!("Parsing command line options");
@@ -32,7 +34,7 @@ pub fn parse_args() -> Config {
         port = matches.opt_str("p").unwrap();
     }
     debug!("Port is {:?}", port);
-    let port_num = port.parse::<i32>().unwrap_or_else(|e| panic!("port must be an integer. {}", e));
+    let port_num = port.parse::<u32>().unwrap_or_else(|e| panic!("port must be an integer. {}", e));
 
     //Upstream
     debug!("Parsing upstream server...");
@@ -45,10 +47,21 @@ pub fn parse_args() -> Config {
         upstream_server = SocketAddr::from_str(server).unwrap();
     }
 
-    return Config 
+    //Timeout
+    debug!("Parsing timeout...");
+    let mut timeout = "1000".to_string();
+    if matches.opt_present("t") {
+        timeout = matches.opt_str("t").unwrap();
+    }
+    debug!("Timeout is {:?}", timeout);
+    let timeout_num = timeout.parse::<u64>().unwrap_or_else(|e| panic!("timeout must be an integer. {}", e));
+
+
+    return Config
     {
         port: port_num,
-        server: upstream_server 
+        server: upstream_server,
+        timeout: timeout_num
     };
 }
 
