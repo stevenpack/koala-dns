@@ -40,7 +40,7 @@ impl UdpRequest {
             upstream_socket: UdpSocket::v4().unwrap_or_else(|e| panic!("Failed to create UDP socket {:?}", e)),
             upstream_addr: upstream_addr,
             query_buf: query_buf,
-            response_buf: Vec::<u8>::new(),
+            response_buf: Vec::<u8>::with_capacity(1024),
             timeout_ms: timeout,
             timeout_handle: None
         };
@@ -77,7 +77,7 @@ impl UdpRequest {
             RequestState::Forwarded => {
                 assert!(events.is_readable());
                 //todo: higher perf buffer?
-                let mut buf = Vec::<u8>::new();
+                let mut buf = Vec::<u8>::with_capacity(1024);
                 match self.upstream_socket.recv_from(&mut buf) {
                     Ok(Some(addr)) => {
                         debug!("Received {} bytes from {:?}", buf.len(), addr);
