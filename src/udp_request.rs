@@ -116,7 +116,6 @@ impl UdpRequest {
     }
     pub fn socket_ready<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet) where T: Handler<Timeout=Token> {
         debug!("Socket Event. State: {:?} {:?} EventSet: {:?}", self.state, token, events);
-        //todo: refactor
         match self.state {
             RequestState::New => self.accept(event_loop, token, events),
             RequestState::Accepted => self.forward(event_loop, token, events),

@@ -15,8 +15,6 @@ pub struct MioServer {
     responses: Vec<UdpRequest>
 }
 
-
-
 const UDP_SERVER_TOKEN: Token = Token(1);
 
 impl Handler for MioServer {
@@ -52,7 +50,6 @@ impl MioServer {
     }
 
     fn upstream_ready(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet, token: Token) {
-
         self.requests[token].socket_ready(event_loop, token, events);
         if self.requests[token].state == RequestState::ResponseReceived {
             self.queue_response(token);
@@ -61,10 +58,12 @@ impl MioServer {
     }
 
     fn queue_response(&mut self, token: Token) {
-        let request = self.remove_request(token);
-        if request.is_some() {
-            self.responses.push(request.unwrap());
-            debug!("Added {:?} to pending replies", token);
+        match self.remove_request(token) {
+            Some(request) => {
+                self.responses.push(request);
+                debug!("Added {:?} to pending replies", token);
+            },
+            None => error!("Failed to remove request and queue response. {:?}", token)
         }
     }
 

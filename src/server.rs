@@ -4,7 +4,6 @@ use server_mio::MioServer;
 //
 // Public shown to main
 //
-// todo: get guidance from carllerche on when you need to reregister
 pub struct Server {
     pub port: u32,
     pub upstream_server: SocketAddr,
