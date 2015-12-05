@@ -1,5 +1,5 @@
 extern crate bytes;
-use mio::{Token, EventSet, Timeout};
+use mio::{Token, EventSet, Timeout, EventLoop, Handler, PollOpt};
 use mio::udp::UdpSocket;
 use std::net::SocketAddr;
 
@@ -51,46 +51,77 @@ impl UdpRequest {
         self.state = state;
     }
 
-    pub fn set_timeout(&mut self, timeout: Timeout) {
+    pub fn set_timeout_handle(&mut self, timeout: Timeout) {
         self.timeout_handle = Some(timeout);
     }
 
-    pub fn socket_ready(&mut self, token: Token, events: EventSet) {
+    fn register_upstream<T>(&mut self, event_loop: &mut EventLoop<T>, events: EventSet, token: Token) where T: Handler {
+        event_loop.register_opt(&self.upstream_socket, token, events, PollOpt::edge() | PollOpt::oneshot())
+            .unwrap_or_else(|e| error!("Failed to register upstream socket. {}", e));
+            //todo fail the reqest
+    }
+
+    fn set_timeout<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token) where T: Handler<Timeout=Token> {
+        match event_loop.timeout_ms(token, self.timeout_ms) {
+            Ok(t) => self.set_timeout_handle(t),
+            Err(e) => error!("Failed to schedule timeout for {:?}. {:?}", token, e)
+        }
+    }
+
+    fn clear_timeout<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token) where T: Handler<Timeout=Token> {
+        if event_loop.clear_timeout(self.timeout_handle.unwrap()) {
+            debug!("Timeout cleared for {:?}", token);
+        } else {
+            debug!("Could not clear timeout for {:?}", token);
+        }
+    }
+
+    fn accept<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
+    where T: Handler<Timeout=Token> {
+        debug_assert!(events.is_readable());
+        self.set_state(RequestState::Accepted);
+        self.register_upstream(event_loop, EventSet::writable(), token);
+    }
+
+    fn forward<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
+    where T: Handler<Timeout=Token> {
+        debug_assert!(events.is_writable());
+        match self.upstream_socket.send_to(&mut self::bytes::SliceBuf::wrap(self.query_buf.as_slice()), &self.upstream_addr) {
+            Ok(Some(_)) => {
+                self.set_state(RequestState::Forwarded);
+            }
+            Ok(None) => debug!("Failed to send. Expect writable event to fire again still in the same state. {:?}", token),
+            Err(e) => error!("Failed to write to upstream_socket. {:?}. {:?}", token, e),
+        }
+        self.register_upstream(event_loop, EventSet::readable(), token);
+        self.set_timeout(event_loop, token);
+    }
+
+    fn receive<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
+    where T: Handler<Timeout=Token> {
+        assert!(events.is_readable());
+        //todo: higher perf buffer?
+        let mut buf = Vec::<u8>::with_capacity(1024);
+        match self.upstream_socket.recv_from(&mut buf) {
+            Ok(Some(addr)) => {
+                debug!("Received {} bytes from {:?}", buf.len(), addr);
+                trace!("{:?}", buf);
+                self.response_buf = buf;
+                self.set_state(RequestState::ResponseReceived);
+                self.clear_timeout(event_loop, token);
+            }
+            Ok(None) => debug!("No data received on upstream_socket. {:?}", token),
+            Err(e) => println!("Receive failed on {:?}. {:?}", token, e),
+        }
+    }
+    pub fn socket_ready<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet) where T: Handler<Timeout=Token> {
         debug!("Socket Event. State: {:?} {:?} EventSet: {:?}", self.state, token, events);
         //todo: refactor
         match self.state {
-            RequestState::New => {
-                assert!(events.is_readable());
-                self.set_state(RequestState::Accepted);
-            },
-            RequestState::Accepted => {
-                assert!(events.is_writable());
-                match self.upstream_socket.send_to(&mut self::bytes::SliceBuf::wrap(self.query_buf.as_slice()), &self.upstream_addr) {
-                    Ok(Some(_)) => {
-                        self.set_state(RequestState::Forwarded);
-
-                    }
-                    Ok(None) => debug!("Failed to send. Expect writable event to fire again still in the same state. {:?}", token),
-                    Err(e) => error!("Failed to write to upstream_socket. {:?}. {:?}", token, e),
-                }
-            },
-            RequestState::Forwarded => {
-                assert!(events.is_readable());
-                //todo: higher perf buffer?
-                let mut buf = Vec::<u8>::with_capacity(1024);
-                match self.upstream_socket.recv_from(&mut buf) {
-                    Ok(Some(addr)) => {
-                        debug!("Received {} bytes from {:?}", buf.len(), addr);
-                        trace!("{:?}", buf);
-                        self.response_buf = buf;
-                        self.set_state(RequestState::ResponseReceived);
-
-                    }
-                    Ok(None) => debug!("No data received on upstream_socket. {:?}", token),
-                    Err(e) => println!("Receive failed on {:?}. {:?}", token, e),
-                }
-            },
-            _ => error!("Unexpected socket event for {:?}", token)
+            RequestState::New => self.accept(event_loop, token, events),
+            RequestState::Accepted => self.forward(event_loop, token, events),
+            RequestState::Forwarded => self.receive(event_loop, token, events),
+            RequestState::ResponseReceived => error!("Unexpected socket event for {:?}. State {:?}", token, self.state)
         }
     }
 
