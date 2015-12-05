@@ -18,14 +18,13 @@ pub enum RequestState {
 //#[derive(Debug)]
 pub struct UdpRequest {
     pub state: RequestState,
+    upstream_socket: UdpSocket,
+    timeout_ms: u64,
+    timeout_handle: Option<Timeout>,
     client_addr: SocketAddr,
-    //upstream_token: Token,
-    pub upstream_socket: UdpSocket,
     upstream_addr: SocketAddr,
     query_buf: Vec<u8>,
-    response_buf: Vec<u8>,
-    pub timeout_ms: u64,
-    pub timeout_handle: Option<Timeout>
+    response_buf: Vec<u8>
 }
 
 
