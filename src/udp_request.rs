@@ -50,7 +50,7 @@ impl UdpRequest {
         self.state = state;
     }
 
-    pub fn set_timeout_handle(&mut self, timeout: Timeout) {
+    fn set_timeout_handle(&mut self, timeout: Timeout) {
         self.timeout_handle = Some(timeout);
     }
 
