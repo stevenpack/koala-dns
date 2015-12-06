@@ -97,10 +97,12 @@ impl MioServer {
     }
 
     fn receive(&self, socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
-        let mut buf = Vec::with_capacity(1024);
+        //2.3.4 Size Limits from RFC1035
+        let mut buf = Vec::with_capacity(4096);
         match socket.recv_from(&mut buf) {
             Ok(Some(addr)) => {
                 debug!("Received {} bytes from {}", buf.len(), addr);
+                trace!("{:?}", buf);
                 return Some((addr, buf))
             },
             Ok(None) => { debug!("Server socket not ready to receive"); return None},
@@ -162,13 +164,7 @@ impl MioServer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use mio::{Evented, Token, EventLoop};
-    use mio::udp::UdpSocket;
-    use mio::util::Slab;
-    use std::net::SocketAddr;
-    use std::thread;
-    use std::time::Duration;
+    //use super::*;
     #[test]
     fn it_works() {}
 }

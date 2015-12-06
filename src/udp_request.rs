@@ -39,7 +39,7 @@ impl UdpRequest {
             upstream_socket: UdpSocket::v4().unwrap_or_else(|e| panic!("Failed to create UDP socket {:?}", e)),
             upstream_addr: upstream_addr,
             query_buf: query_buf,
-            response_buf: Vec::<u8>::with_capacity(1024),
+            response_buf: Vec::<u8>::with_capacity(4096),
             timeout_ms: timeout,
             timeout_handle: None
         };
