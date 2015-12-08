@@ -1,26 +1,32 @@
+
 #![allow(dead_code)]
 #![allow(unused_imports)]
 #![allow(unused_variables)]
-
+extern crate bytes;
 use std::fmt::{Binary, Formatter, Error};
+// pub fn read_bit(buf: &[u8], mask: u8) -> bool {
+//     read_bit_at(buf, mask, 0)
+// }
 
-pub fn read_bit(buf: &[u8], mask: u8) -> bool {
-    read_bit_at(buf, mask, 0)
-}
-
-pub fn read_bit_at(buf: &[u8], mask: u8, byte_offset: usize) -> bool {
+pub fn read_bit_at(buf: &[u8], bit_offset: usize) -> bool {
     //println!("byte {:08b}", buf[byte_offset]);
     //println!("mask {:08b}", mask);
-    let result = buf[byte_offset] & mask;
+    let byte_offset: usize = bit_offset / 8;
+    let remainder: u8 = (bit_offset % 8) as u8;
+    let buf_byte = buf[byte_offset];
+    let result = buf_byte >> remainder & 1 == 1;
     //println!("res: {:08b}", result);
-    return result == mask;
+    //println!("buf_byte {:08b} bit_offset {:?} byte_offset: {:?} remainer: {:?} result: {:?}", buf_byte, bit_offset, byte_offset, remainder, result);
+    return result;
 }
 
 pub fn read_u4(buf: &[u8]) -> u8 {
-    return read_u4_at(buf, 0, 0)
+    return read_u4_at(buf, 0)
 }
-pub fn read_u4_at(buf: &[u8], byte_offset: usize, bit_offset: u8) -> u8 {
-    return (buf[byte_offset] >> bit_offset) & 0b0000_1111;
+pub fn read_u4_at(buf: &[u8], bit_offset: usize) -> u8 {
+    let byte_offset: usize = bit_offset / 8;
+    let remainder: u8 = (bit_offset % 8) as u8;
+    return (buf[byte_offset] >> remainder) & 0b0000_1111;
 }
 
 pub fn read_u16(buf: &[u8]) -> u16 {
@@ -28,9 +34,9 @@ pub fn read_u16(buf: &[u8]) -> u16 {
 }
 
 pub fn read_u16_at(buf: &[u8], byte_offset: usize) -> u16 {
-    let byte1: u16 = buf[byte_offset] as u16;
-    let byte2: u16 = buf[byte_offset + 1] as u16;
-    return byte1 << 8 | byte2;
+    let byte1 = buf[byte_offset];
+    let byte2 = buf[byte_offset + 1];
+    return ((byte1 as u16) << 8) | byte2 as u16;
 }
 
 pub fn read_u32(buf: &[u8]) -> u32 {
@@ -94,12 +100,12 @@ mod tests {
         assert_eq!(val, 141623552);
     }
 
-    #[test]
-    fn read_bit() {
-        let buf: [u8; 1] = [1];
-        assert_eq!(super::read_bit(&buf, 0b0000_0001), true);
-        assert_eq!(super::read_bit(&buf, 0b0000_0010), false);
-    }
+    // #[test]
+    // fn read_bit() {
+    //     let buf: [u8; 1] = [1];
+    //     assert_eq!(super::read_bit(&buf, 0b0000_0001), true);
+    //     assert_eq!(super::read_bit(&buf, 0b0000_0010), false);
+    // }
 
     #[test]
     fn read_bit_at() {
@@ -108,24 +114,24 @@ mod tests {
         //try read each bit
 
         //byte 1
-        assert_eq!(super::read_bit_at(&BUF, 0b0000_0001, 0), false); //0
-        assert_eq!(super::read_bit_at(&BUF, 0b0000_0010, 0), false); //0
-        assert_eq!(super::read_bit_at(&BUF, 0b0000_0100, 0), false); //0
-        assert_eq!(super::read_bit_at(&BUF, 0b0000_1000, 0), true);  //1
-        assert_eq!(super::read_bit_at(&BUF, 0b0001_0000, 0), false); //0
-        assert_eq!(super::read_bit_at(&BUF, 0b0010_0000, 0), false); //0
-        assert_eq!(super::read_bit_at(&BUF, 0b0100_0000, 0), false); //0
-        assert_eq!(super::read_bit_at(&BUF, 0b1000_0000, 0), false); //0
-
-        //byte 2
-        assert_eq!(super::read_bit_at(&BUF, 0b0000_0001, 1), true);
-        assert_eq!(super::read_bit_at(&BUF, 0b0000_0010, 1), false);
-        assert_eq!(super::read_bit_at(&BUF, 0b0000_0100, 1), false);
-        assert_eq!(super::read_bit_at(&BUF, 0b0000_1000, 1), false);
-        assert_eq!(super::read_bit_at(&BUF, 0b0001_0000, 1), true);
-        assert_eq!(super::read_bit_at(&BUF, 0b0010_0000, 1), true);
-        assert_eq!(super::read_bit_at(&BUF, 0b0100_0000, 1), true);
-        assert_eq!(super::read_bit_at(&BUF, 0b1000_0000, 1), false);
+        assert_eq!(super::read_bit_at(&BUF, 0), false); //0
+        assert_eq!(super::read_bit_at(&BUF, 1), false); //0
+        assert_eq!(super::read_bit_at(&BUF, 2), false); //0
+        assert_eq!(super::read_bit_at(&BUF, 3), true);  //1
+        assert_eq!(super::read_bit_at(&BUF, 4), false); //0
+        assert_eq!(super::read_bit_at(&BUF, 5), false); //0
+        assert_eq!(super::read_bit_at(&BUF, 6), false); //0
+        assert_eq!(super::read_bit_at(&BUF, 7), false); //0
+        //
+        // //byte 2
+        assert_eq!(super::read_bit_at(&BUF, 8), true);  //1
+        assert_eq!(super::read_bit_at(&BUF, 9), false); //0
+        assert_eq!(super::read_bit_at(&BUF, 10), false);//0
+        assert_eq!(super::read_bit_at(&BUF, 11), false);//0
+        assert_eq!(super::read_bit_at(&BUF, 12), true); //1
+        assert_eq!(super::read_bit_at(&BUF, 13), true); //1
+        assert_eq!(super::read_bit_at(&BUF, 14), true); //1
+        assert_eq!(super::read_bit_at(&BUF, 15), false);//1
     }
 
     #[test]
@@ -139,8 +145,8 @@ mod tests {
         //First 24 bits of buffer looks like:
         //00001000 01110001 00000001
         //try read a u4 from the 17th bit
-        assert_eq!(super::read_u4_at(&BUF, 2, 0), 1);
-        assert_eq!(super::read_u4_at(&BUF, 2, 1), 0);
+        assert_eq!(super::read_u4_at(&BUF, 16), 1);
+        assert_eq!(super::read_u4_at(&BUF, 17), 0);
     }
 
  }

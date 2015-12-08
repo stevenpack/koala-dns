@@ -55,7 +55,7 @@ impl UdpRequest {
     }
 
     fn register_upstream<T>(&mut self, event_loop: &mut EventLoop<T>, events: EventSet, token: Token) where T: Handler {
-        event_loop.register_opt(&self.upstream_socket, token, events, PollOpt::edge() | PollOpt::oneshot())
+        event_loop.register(&self.upstream_socket, token, events, PollOpt::edge() | PollOpt::oneshot())
             .unwrap_or_else(|e| error!("Failed to register upstream socket. {}", e));
             //todo fail the reqest
     }
@@ -85,7 +85,7 @@ impl UdpRequest {
     fn forward<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
     where T: Handler<Timeout=Token> {
         debug_assert!(events.is_writable());
-        match self.upstream_socket.send_to(&mut self::bytes::SliceBuf::wrap(self.query_buf.as_slice()), &self.upstream_addr) {
+        match self.upstream_socket.send_to(&mut self.query_buf.as_slice(), &self.upstream_addr) {
             Ok(Some(_)) => {
                 self.set_state(RequestState::Forwarded);
             }
@@ -124,7 +124,7 @@ impl UdpRequest {
     }
 
     pub fn send(&self, socket: &UdpSocket) {
-        match socket.send_to(&mut self::bytes::SliceBuf::wrap(&self.response_buf.as_slice()), &self.client_addr) {
+        match socket.send_to(&mut &self.response_buf.as_slice(), &self.client_addr) {
             Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, self.client_addr),
             Err(e) => error!("Failed to send. {:?} Error was {:?}", self.client_addr, e),
         }

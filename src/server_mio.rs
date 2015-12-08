@@ -96,13 +96,13 @@ impl MioServer {
         }
     }
 
-    fn receive(&self, socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
+    fn receive(&self, socket: &UdpSocket) -> Option<(SocketAddr, [u8; 512])> {
         //2.3.4 Size Limits from RFC1035
-        let mut buf = Vec::with_capacity(4096);
+        let mut buf: [u8; 512] = [0;512];
         match socket.recv_from(&mut buf) {
-            Ok(Some(addr)) => {
-                debug!("Received {} bytes from {}", buf.len(), addr);
-                trace!("{:?}", buf);
+            Ok(Some((count, addr))) => {
+                debug!("Received {} bytes from {}", count, addr);
+                //trace!("{:?}", buf);
                 return Some((addr, buf))
             },
             Ok(None) => { debug!("Server socket not ready to receive"); return None},
@@ -110,9 +110,11 @@ impl MioServer {
         };
     }
 
-    fn add_transaction(&mut self, addr: SocketAddr, buf: Vec<u8>) -> Option<Token> {
+    fn add_transaction(&mut self, addr: SocketAddr, bytes: &[u8; 512]) -> Option<Token> {
         let upstream_server = self.upstream_server;
         let timeout_ms = self.timeout;
+        let mut buf = Vec::<u8>::with_capacity(512);
+        buf.push_all(bytes);
         match self.requests.insert(UdpRequest::new(addr, upstream_server, buf, timeout_ms)) {
             Ok(new_tok) => return Some(new_tok),
             Err(_) => { error!("Unable to start new transaction. Add to slab failed."); return None;}
@@ -121,7 +123,7 @@ impl MioServer {
 
    fn accept(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
         let new_tok = self.receive(&self.udp_server)
-                      .and_then(|(addr, buf)| self.add_transaction(addr, buf));
+                      .and_then(|(addr, buf)| self.add_transaction(addr, &buf));
 
         if new_tok.is_some() {
             debug!("There are {:?} in-flight requests", self.requests.count());
@@ -142,10 +144,10 @@ impl MioServer {
         let udp_server = MioServer::bind_udp(address);
 
         let mut event_loop = EventLoop::new().unwrap();
-        let _ = event_loop.register_opt(&udp_server,
-                                        UDP_SERVER_TOKEN,
-                                        EventSet::readable(),
-                                        PollOpt::edge() | PollOpt::oneshot());
+        let _ = event_loop.register(&udp_server,
+                                    UDP_SERVER_TOKEN,
+                                    EventSet::readable(),
+                                    PollOpt::edge() | PollOpt::oneshot());
 
         let max_connections = u16::max_value() as usize;
         let mut mio_server = MioServer {

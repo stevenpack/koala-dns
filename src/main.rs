@@ -1,4 +1,5 @@
 #![feature(convert)]
+#![feature(vec_push_all)]
 extern crate getopts;
 extern crate mio;
 #[macro_use]
