@@ -6,6 +6,7 @@ use mio::udp::UdpSocket;
 use mio::util::Slab;
 use std::net::SocketAddr;
 use udp_request::{UdpRequest, RequestState};
+use dns_parser::DnsParser;
 
 pub struct MioServer {
     udp_server: UdpSocket,
@@ -113,6 +114,7 @@ impl MioServer {
     fn add_transaction(&mut self, addr: SocketAddr, bytes: &[u8; 512]) -> Option<Token> {
         let upstream_server = self.upstream_server;
         let timeout_ms = self.timeout;
+        //todo: lose the vecs
         let mut buf = Vec::<u8>::with_capacity(512);
         buf.push_all(bytes);
         match self.requests.insert(UdpRequest::new(addr, upstream_server, buf, timeout_ms)) {
@@ -126,6 +128,9 @@ impl MioServer {
                       .and_then(|(addr, buf)| self.add_transaction(addr, &buf));
 
         if new_tok.is_some() {
+
+            debug!("{:?}", DnsParser::parse(&self.requests.get(new_tok.unwrap()).unwrap().query_buf));
+
             debug!("There are {:?} in-flight requests", self.requests.count());
             self.ready(event_loop, new_tok.unwrap(), events);
         } else {

@@ -23,7 +23,7 @@ pub struct UdpRequest {
     timeout_handle: Option<Timeout>,
     client_addr: SocketAddr,
     upstream_addr: SocketAddr,
-    query_buf: Vec<u8>,
+    pub query_buf: Vec<u8>,
     response_buf: Vec<u8>
 }
 
@@ -100,12 +100,13 @@ impl UdpRequest {
     where T: Handler<Timeout=Token> {
         assert!(events.is_readable());
         //todo: higher perf buffer?
-        let mut buf = Vec::<u8>::with_capacity(1024);
+        let mut buf: [u8; 512] = [0;512];
         match self.upstream_socket.recv_from(&mut buf) {
             Ok(Some(addr)) => {
                 debug!("Received {} bytes from {:?}", buf.len(), addr);
-                trace!("{:?}", buf);
-                self.response_buf = buf;
+                //todo: lose the vecs
+                self.response_buf.push_all(&buf);
+                //self.response_buf = buf;
                 self.set_state(RequestState::ResponseReceived);
                 self.clear_timeout(event_loop, token);
             }

@@ -11,7 +11,7 @@ mod server;
 mod server_mio;
 mod udp_request;
 mod dns_parser;
-mod byte_utils;
+mod bit_cursor;
 
 use server::Start;
 

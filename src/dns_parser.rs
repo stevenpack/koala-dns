@@ -1,4 +1,6 @@
-#![allow(dead_code)]
+//#![allow(dead_code)]
+use bit_cursor::BitCursor;
+
 
 //                               1  1  1  1  1  1
 // 0  1  2  3  4  5  6  7  8  9  0  1  2  3  4  5
@@ -16,20 +18,29 @@
 // |                    ARCOUNT                    |
 // +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
 #[derive(Debug)]
-#[allow(dead_code)]
-struct DnsHeader {
-    id: u16,    //0-15
-    qr: bool,   //16-16
-    op_code: u8, //17-20
+pub struct DnsHeader {
+    id: u16,
+    qr: bool,
+    opcode: u8,
+    aa: bool,
+    tc: bool,
+    rd: bool,
+    ra: bool,
+    z: u8,
+    rcode: u8,
+    qdcount: u16,
+    ancount: u16,
+    nscount: u16,
+    arcount: u16
 }
 
 #[derive(Debug)]
-struct DnsQuestion {
+pub struct DnsQuestion {
     header: DnsHeader
 }
 
 #[derive(Debug)]
-struct DnsParser;
+pub struct DnsParser;
 
 impl DnsParser {
     pub fn parse(buf: &[u8]) -> DnsQuestion  {
@@ -45,25 +56,46 @@ impl DnsParser {
 
         let mut id: u16 = 0;
         let mut qr: bool = false;
-        let mut op_code: u8 = 0;
+        let mut opcode: u8 = 0;
+        let mut aa: bool = false;
+        let mut tc: bool = false;
+        let mut rd: bool = false;
+        let mut ra: bool = false;
+        let mut z: u8 = 0;
+        let mut rcode: u8 = 0;
+
+        let mut qdcount: u16 = 0;
+        let mut ancount: u16 = 0;
+        let mut nscount: u16 = 0;
+        let mut arcount: u16 = 0;
 
         let mut i = 0;
+        let mut cursor = BitCursor::new();
+        //iterate over each 16bit word in the packet
         for word in packet {
+            //read each bit according to the definition
+            cursor.set(word);
             println!("word: {:016b}", word);
             match i {
-                0 => id = word,
+                0 => id = cursor.next_u16(),
                 1 => {
-                    qr = word & 0b1000_0000_0000_0000 == 1;
-                    op_code = (word & 0b0111_1000_0000_0000) as u8;
-                    //or
-                    // let bits = BitCursor::new(word);
-                    // qr = bits.next_bool();
-                    // op_code = bits.next_u4();
-                    // aa = bits.next_bool();
+                    qr = cursor.next_bool();
+                    opcode = cursor.next_u4();
+                    aa = cursor.next_bool();
+                    tc = cursor.next_bool();
+                    rd = cursor.next_bool();
+                    ra = cursor.next_bool();
+                    z = cursor.next_u4();
+                    rcode = cursor.next_u4();
                 }
-                _ => {
-                    //parse
-                }
+                2 => qdcount = cursor.next_u16(),
+                3 => ancount = cursor.next_u16(),
+                4 => nscount = cursor.next_u16(),
+                5 => {
+                    arcount = cursor.next_u16();
+                    break;
+                },
+                _ => warn!("Trying to read past end of header")
             }
             i += 1;
         }
@@ -71,10 +103,22 @@ impl DnsParser {
         return DnsHeader {
             id: id,
             qr: qr,
-            op_code: op_code
+            opcode: opcode,
+            aa: aa,
+            tc: tc,
+            rd: rd,
+            ra: ra,
+            z: z,
+            rcode: rcode,
+            qdcount: qdcount,
+            ancount: ancount,
+            nscount: nscount,
+            arcount: arcount
         }
     }
 }
+
+
 
 struct DnsPacket<'a> {
     buf: &'a [u8],
@@ -90,11 +134,14 @@ impl<'a> DnsPacket<'a> {
     }
 }
 
+//or impl Iterator for WordIterator, impl Iterator for OctetIterator
+//todo: new (english) word. Hextet, for 16 bytes.
 impl<'a> Iterator for DnsPacket<'a> {
-    //Or make this a BitCursor
-    //and just keep re-using it
-    //consumer can do that (and still re-use it)
     type Item = u16;
+
+    /*
+    Returns two octets in the order they expressed in the spec. I.e. first byte shifted to the left
+    */
     fn next(&mut self) -> Option<u16> {
         let len = self.buf.len();
         if self.pos >= len {
@@ -113,15 +160,19 @@ impl<'a> Iterator for DnsPacket<'a> {
  }
 #[cfg(test)]
 mod tests {
-    //use super::*;
     use super::{DnsParser, DnsPacket};
 
     fn test_buf() -> Vec<u8> {
+        /*
+         00001000 01110001 00000001 00000000 00000000 00000001 00000000 00000000 00000000
+         00000000 00000000 00000000 00000101 01111001 01100001 01101000 01101111 01101111
+         00000011 01100011 01101111 01101101 00000000 00000000 00000001 00000000 00000001
+        */
         return vec![8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0, 0, 1, 0, 1];
     }
 
     #[test]
-    fn it_works() {
+    fn parse() {
         //query
         //
         //[8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0, 0,
@@ -153,7 +204,6 @@ mod tests {
         // ;; SERVER: 127.0.0.1#10001(127.0.0.1)
         // ;; WHEN: Sat Dec  5 14:49:55 2015
         // ;; MSG SIZE  rcvd: 75
-
         let buf = test_buf();
         let q = DnsParser::parse(&buf);
         println!("{:?}", q);
