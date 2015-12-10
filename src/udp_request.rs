@@ -102,10 +102,11 @@ impl UdpRequest {
         //todo: higher perf buffer?
         let mut buf: [u8; 512] = [0;512];
         match self.upstream_socket.recv_from(&mut buf) {
-            Ok(Some(addr)) => {
+            Ok(Some((count, addr))) => {
                 debug!("Received {} bytes from {:?}", buf.len(), addr);
                 //todo: lose the vecs
                 self.response_buf.push_all(&buf);
+                self.response_buf.truncate(count);
                 //self.response_buf = buf;
                 self.set_state(RequestState::ResponseReceived);
                 self.clear_timeout(event_loop, token);

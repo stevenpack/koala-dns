@@ -97,13 +97,14 @@ impl MioServer {
         }
     }
 
-    fn receive(&self, socket: &UdpSocket) -> Option<(SocketAddr, [u8; 512])> {
+    fn receive(&self, socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
         //2.3.4 Size Limits from RFC1035
-        let mut buf: [u8; 512] = [0;512];
+        let mut buf = vec![0;512];
         match socket.recv_from(&mut buf) {
             Ok(Some((count, addr))) => {
                 debug!("Received {} bytes from {}", count, addr);
                 //trace!("{:?}", buf);
+                buf.truncate(count);
                 return Some((addr, buf))
             },
             Ok(None) => { debug!("Server socket not ready to receive"); return None},
@@ -111,7 +112,7 @@ impl MioServer {
         };
     }
 
-    fn add_transaction(&mut self, addr: SocketAddr, bytes: &[u8; 512]) -> Option<Token> {
+    fn add_transaction(&mut self, addr: SocketAddr, bytes: &[u8]) -> Option<Token> {
         let upstream_server = self.upstream_server;
         let timeout_ms = self.timeout;
         //todo: lose the vecs
@@ -125,12 +126,12 @@ impl MioServer {
 
    fn accept(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
         let new_tok = self.receive(&self.udp_server)
-                      .and_then(|(addr, buf)| self.add_transaction(addr, &buf));
+                      .and_then(|(addr, buf)| self.add_transaction(addr, buf.as_slice()));
 
         if new_tok.is_some() {
-
-            debug!("{:?}", DnsParser::parse(&self.requests.get(new_tok.unwrap()).unwrap().query_buf));
-
+            {
+                debug!("{:?}", DnsParser::parse(&self.requests.get(new_tok.unwrap()).unwrap().query_buf));
+            }
             debug!("There are {:?} in-flight requests", self.requests.count());
             self.ready(event_loop, new_tok.unwrap(), events);
         } else {

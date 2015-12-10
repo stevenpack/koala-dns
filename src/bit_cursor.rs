@@ -14,7 +14,7 @@ impl BitCursor {
             pos: 0
         }
     }
- 
+
     #[allow(dead_code)]
     pub fn new_with(bits: u16) -> BitCursor {
         return BitCursor{
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn shift() {
-        //read as a bit, then a u4. so true (1), then 0011
+        //read as a bit, then a u4. so true (0001), then 3(0011)
         let mut cursor = BitCursor::new_with(0b1001_1000_0000_0000);
         assert_eq!(0b0011_0000_0000_0001, cursor.shift(1));
         cursor.advance(1);

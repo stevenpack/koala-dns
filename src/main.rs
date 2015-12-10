@@ -10,8 +10,10 @@ mod command_line;
 mod server;
 mod server_mio;
 mod udp_request;
-mod dns_parser;
 mod bit_cursor;
+mod dns_entities;
+mod dns_parser;
+mod dns_packet;
 
 use server::Start;
 
