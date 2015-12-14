@@ -1,7 +1,8 @@
+use std::char;
 #[derive(Debug)]
 pub struct DnsPacket<'a> {
     buf: &'a [u8],
-    pub pos: usize
+    pos: usize
 }
 
 impl<'a> DnsPacket<'a> {
@@ -17,10 +18,59 @@ impl<'a> DnsPacket<'a> {
         }
     }
 
-    pub fn next_u16(&mut self) -> Option<u16> {
+    #[allow(dead_code)]
+    pub fn reset(&mut self) {
+        self.pos = 0;
+    }
+
+    pub fn seek(&mut self, pos: usize) {
+        self.pos = pos;
+    }
+
+    #[allow(dead_code)]
+    pub fn pos(&self) -> usize {
+        return self.pos;
+    }
+
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        return self.buf.len();
+    }
+
+    pub fn peek_u8(&self) -> Option<u8> {
         let len = self.buf.len();
         if self.pos >= len {
-            self.pos = 0;
+            return None;
+        }
+        return Some(self.buf[self.pos]);
+    }
+
+    pub fn next_bytes(&mut self, bytes: usize) -> Vec<u8> {
+        let mut slice = Vec::with_capacity(bytes);
+        for _ in 0..bytes {
+            let byte = self.next_u8();
+            match byte {
+                Some(b) => slice.push(b),
+                None => break
+            }
+        }
+        return slice;
+    }
+
+    pub fn next_u8(&mut self) -> Option<u8> {
+        match self.peek_u8() {
+            Some(byte) => {
+                self.pos += 1;
+                return Some(byte);
+            },
+            None => return None
+        }
+    }
+
+    pub fn next_u16(&mut self) -> Option<u16> {
+        //todo: check if this is necessary... allowing to only read 8 of the 16 bits
+        let len = self.buf.len();
+        if self.pos >= len {
             return None;
         }
         let byte1 = self.buf[self.pos];
@@ -32,6 +82,59 @@ impl<'a> DnsPacket<'a> {
             self.pos +=1;
         }
         return Some(((byte1 as u16) << 8) | byte2 as u16)
+    }
+
+    pub fn next_u32(&mut self) -> Option<u32> {
+        let len = self.buf.len();
+        if (self.pos + 4) >= len {
+            return None;
+        }
+
+        let val = (self.buf[self.pos] as u32) << 24 |
+                  (self.buf[self.pos + 1] as u32) << 16 |
+                  (self.buf[self.pos + 2] as u32) << 8 |
+                  self.buf[self.pos + 3] as u32;
+        self.pos += 4;
+        return Some(val);
+    }
+
+    #[allow(dead_code)]
+    pub fn dump2(&mut self) {
+        let current_pos = self.pos();
+        let mut marker;
+        self.reset();
+        loop {
+            match self.next_u8() {
+                Some(word) => {
+                    marker = format!("< byte: {}", self.pos - 1);
+                    if self.pos - 1 == current_pos {
+                        marker = format!("{} self.pos={}", marker, self.pos);
+                    }
+                    println!("{:08b} {} {:?}", word, marker, char::from_u32(word as u32));
+                },
+                None => break
+            }
+        }
+        self.pos = current_pos;
+    }
+
+    pub fn dump(&mut self) {
+        let current_pos = self.pos();
+        let mut marker;
+        self.reset();
+        loop {
+            match self.next_u16() {
+                Some(word) => {
+                    marker = format!("< byte: {}-{}", self.pos - 2, self.pos - 1);
+                    if self.pos - 2 == current_pos || self.pos - 1 == current_pos {
+                        marker = format!("{} self.pos={}", marker, self.pos);
+                    }
+                    println!("{:016b} {}", word, marker);
+                },
+                None => break
+            }
+        }
+        self.pos = current_pos;
     }
 }
 
@@ -64,6 +167,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn next_u32() {
+        println!("u32: {:?}", DnsPacket::new(&test_buf()).next_u32());
+    }
+
+    #[test]
+    #[ignore]
     fn iterate() {
         let buf = test_buf();
         let packet = DnsPacket::new(&buf);

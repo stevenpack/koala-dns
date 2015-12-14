@@ -2,54 +2,144 @@
 use bit_cursor::BitCursor;
 use dns_packet::*;
 use dns_entities::*;
+use std::string::FromUtf8Error;
 
 #[derive(Debug)]
 pub struct DnsParser;
 
 impl DnsParser {
 
-    pub fn parse(buf: &[u8]) -> DnsQuery  {
-        let (header, pos) = DnsParser::parse_header(buf);
+    pub fn parse(buf: &[u8]) -> DnsMessage  {
+        let mut packet = DnsPacket::new(buf);
+        let header = DnsParser::parse_header(&mut packet);
         match header.qr {
-            QR_QUERY => {let _ = DnsParser::parse_question(buf, pos);},
-            QR_RESPONSE => info!("parse answer")
+            QR_QUERY => {
+                let questions = DnsParser::parse_questions(&mut packet, header.qdcount);
+                return DnsMessage::new_query(header, questions);
+            },
+            QR_RESPONSE => {
+                //todo: also needs to parse qdcount questions, and return position
+                let questions = DnsParser::parse_questions(&mut packet, header.qdcount);
+                let answers = DnsParser::parse_answers(&mut packet, header.ancount);
+                return DnsMessage::new_reply(header, questions, answers);
+            }
         }
-        return DnsQuery {
-            header: header
-        };
     }
 
-    fn parse_question(buf: &[u8], pos: usize) -> DnsQuestion {
-        let packet = DnsPacket::new_at(buf, pos);
-        let mut cursor = BitCursor::new();
+    fn parse_answer(packet: &mut DnsPacket) -> DnsAnswer {
+        let name = DnsParser::parse_name(packet);
+        let atype = packet.next_u16().unwrap_or_default();
+        let aclass = packet.next_u16().unwrap_or_default();
+        println!("Position before reading ttl: {:?}", packet.pos());
+        packet.dump();
+        //packet.dump2();
+        let ttl = packet.next_u32().unwrap_or_default();
+        let rdlength = packet.next_u16().unwrap_or_default();
+        //todo: if parsing rdata fails for some reason, we should fail, or make sure we start
+        //reading the next answer at the right position
+        let rdata = packet.next_bytes(rdlength as usize);
+        return DnsAnswer::new(name, atype, aclass, ttl, rdlength, rdata);
+    }
+
+    fn parse_answers(packet: &mut DnsPacket, ancount: u16) -> Vec<DnsAnswer> {
+        packet.dump();
+        println!("Resuming at {} for answers", packet.pos());
+
+        let mut answers = Vec::<DnsAnswer>::with_capacity(ancount as usize);
+        for _ in 0..ancount {
+            let answer = DnsParser::parse_answer(packet);
+            answers.push(answer);
+        }
+        println!("{:?}", answers);
+        return answers;
+    }
+
+    fn parse_label(packet: &mut DnsPacket, len: usize) -> Result<String, FromUtf8Error> {
+        let mut label = Vec::<u8>::with_capacity(len as usize);
+        for i in 0..len {
+            match packet.next_u8() {
+                Some(0) | None => break,
+                Some(byte) => label.insert(i, byte)
+            }
+        }
+        return String::from_utf8(label);
+    }
+
+    fn parse_name(packet: &mut DnsPacket) -> String {
+        let mut more_labels = true;
+        //first octet is length, then that many octets for each part.
+        //i.e. yahoo.com is
+        //00000101 y
+        //a        h
+        //o        o
+        //00000011 c
+        //o        m
+        //00000000
+        //terminated with 00000000
+        //todo: size to remaining words or some better estimate like packet.word_count()
+        if DnsParser::is_pointer(packet.peek_u8().unwrap_or_default()) {
+            let offset = DnsParser::parse_pointer(packet.next_u16().unwrap_or_default());
+            //todo: refactor and test with part pointers. i.e, only part of the name has pointers
+            //see example page 30
+            let current_pos = packet.pos();
+            packet.seek(offset as usize);
+            let name = DnsParser::parse_name(packet);
+            packet.seek(current_pos);
+            return name;
+        } else {
+            let mut labels = Vec::<String>::with_capacity(8);
+            while more_labels {
+                match packet.next_u8() {
+                    Some(0) | None => more_labels = false,
+                    Some(len) => {
+                        match DnsParser::parse_label(packet, len as usize) {
+                                Ok(label) => labels.push(label),
+                                Err(e) => warn!("Invalid label: {}", e)
+                            };
+                    }
+                }
+            }
+            return labels.join(".");
+        }
+    }
+
+    fn is_pointer(byte: u8) -> bool {
+        //DNS message compression 4.1.4
+        return byte & 0b1100_0000 == 0b1100_0000
+    }
+
+    fn parse_pointer(byte: u16) -> u16 {
+        return byte & 0b0011_1111_1111_1111;
+    }
+
+    fn parse_question(packet: &mut DnsPacket) -> DnsQuestion {
+        let qname = DnsParser::parse_name(packet);
+        let qtype = packet.next_u16().unwrap_or_default();
+        let qclass = packet.next_u16().unwrap_or_default();
+
+        let question = DnsQuestion::new(qname, qtype, qclass);
+        return question;
+    }
+
+    fn parse_questions(packet: &mut DnsPacket, qdcount: u16) -> Vec<DnsQuestion> {
         println!("{:?}", packet);
-        println!("Resuming at {}", pos);
-        for (word, pos) in packet {
-            cursor.set(word);
-            println!("{:016b}", word);
-            let length = cursor.next_u8();
-            println!("string length is: {}", length);
-            //first octet is length, then that many octets for each part.
-            //i.e. yahoo.com is
-            //00000101 y
-            //a        h
-            //o        o
-            //00000011 c
-            //o        m
-            //00000000
-            //terminated with 00000000
+        println!("Resuming at {} for questions", packet.pos());
+
+        //todo: test with multiple questions
+        let mut questions = Vec::<DnsQuestion>::with_capacity(qdcount as usize);
+        for _ in 0..qdcount {
             //todo: rfc says no padding, but shows qtype aligning at start of next word.
             //test with with odd number of octets
+            let question = DnsParser::parse_question(packet);
+            questions.push(question);
         }
-        return DnsQuestion {
-            qname: format!("{}", "test"),
-            qtype: 0,
-            qclass: 1
-        }
+        println!("{:?}", questions);
+        return questions;
     }
 
     ///Parses the buffer, returning a DnsHeader and the octet at which to continue.
-    fn parse_header(buf: &[u8]) -> (DnsHeader, usize) {
+    fn parse_header(packet: &mut DnsPacket) -> DnsHeader {
+        //todo: see bitflags macro
         let mut id: u16 = 0;
         let mut qr: bool = false;
         let mut opcode: u8 = 0;
@@ -65,18 +155,15 @@ impl DnsParser {
         let mut nscount: u16 = 0;
         let mut arcount: u16 = 0;
 
-        let packet = DnsPacket::new(buf);
         let mut cursor = BitCursor::new();
         //iterate over each 16bit word in the packet
-        let mut last_pos = 0;
         for (word, pos) in packet {
-            last_pos = pos;
             //read each bit according to the definition
             cursor.set(word);
-            trace!("word: {:016b}", word);
+            println!("word: {:016b}", word);
             match pos {
-                0 => id = cursor.next_u16(),
-                1 => {
+                2 => id = cursor.next_u16(),
+                4 => {
                     qr = cursor.next_bool();
                     opcode = cursor.next_u4();
                     aa = cursor.next_bool();
@@ -86,11 +173,15 @@ impl DnsParser {
                     z = cursor.next_u4();
                     rcode = cursor.next_u4();
                 }
-                2 => qdcount = cursor.next_u16(),
-                3 => ancount = cursor.next_u16(),
-                4 => nscount = cursor.next_u16(),
-                5 => arcount = cursor.next_u16(),
-                _ => break
+                6 => qdcount = cursor.next_u16(),
+                8 => ancount = cursor.next_u16(),
+                10 => nscount = cursor.next_u16(),
+                12 => {
+                    arcount = cursor.next_u16();
+                    trace!("Breaking on end of header at {:?}", pos);
+                    break;
+                },
+                x => error!("Read past end of header. Pos: {:?}", x)
             }
         }
 
@@ -109,9 +200,7 @@ impl DnsParser {
                         nscount: nscount,
                         arcount: arcount
                     };
-        //We were iterating 16bit words, but we return the octet
-        //todo: hack with position
-        return (header, last_pos + 2);
+        return header;
     }
 }
 
@@ -120,7 +209,7 @@ mod tests {
     use super::DnsParser;
     use dns_packet::DnsPacket;
 
-    fn test_buf() -> Vec<u8> {
+    fn test_query_buf() -> Vec<u8> {
         /*
          00001000 01110001 00000001 00000000 00000000 00000001 00000000 00000000 00000000
          00000000 00000000 00000000 00000101 01111001 01100001 01101000 01101111 01101111
@@ -129,28 +218,25 @@ mod tests {
         return vec![8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0, 0, 1, 0, 1];
     }
 
-    fn dump(buf: &Vec<u8>) {
-        let packet = DnsPacket::new_at(buf, 0);
-        for word in packet {
-            println!("{:016b}", word.0);
-        }
+    fn test_reply_buf() -> Vec<u8> {
+        return vec![8, 113, 129, 128, 0, 1, 0, 3, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0, 0, 1, 0, 1, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 206, 190, 36, 45, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 98, 139, 183, 24, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 98, 138, 253, 109];
+    }
+
+    #[test]
+    //#[ignore]
+    fn parse_reply() {
+        println!("{:?}", DnsParser::parse(&test_reply_buf()));
     }
 
     #[test]
     #[ignore]
     fn parse_header (){
-        println!("{:?}", DnsParser::parse_header(&test_buf()));
-    }
-
-    #[test]
-    fn parse_question (){
-        dump(&test_buf());
-        println!("{:?}", DnsParser::parse_question(&test_buf(), 12));
+        //println!("{:?}", DnsParser::parse_header(&test_buf()));
     }
 
     #[test]
     #[ignore]
-    fn parse() {
+    fn parse_query() {
         //query
         //
         //[8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0, 0,
@@ -182,8 +268,7 @@ mod tests {
         // ;; SERVER: 127.0.0.1#10001(127.0.0.1)
         // ;; WHEN: Sat Dec  5 14:49:55 2015
         // ;; MSG SIZE  rcvd: 75
-        let buf = test_buf();
-        let q = DnsParser::parse(&buf);
+        let q = DnsParser::parse(&test_query_buf());
         println!("{:?}", q);
     }
 }

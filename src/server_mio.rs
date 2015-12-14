@@ -174,5 +174,6 @@ impl MioServer {
 mod tests {
     //use super::*;
     #[test]
+    #[ignore]
     fn it_works() {}
 }

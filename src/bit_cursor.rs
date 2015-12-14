@@ -98,6 +98,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn mask() {
         let cursor = BitCursor::new_with(12);
         for i in vec![1,2,3,4] {
@@ -116,6 +117,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn shift() {
         //read as a bit, then a u4. so true (0001), then 3(0011)
         let mut cursor = BitCursor::new_with(0b1001_1000_0000_0000);
@@ -125,6 +127,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn next() {
         let mut cursor = BitCursor::new_with(0b0000_1000_0111_0001); //1st word
         assert_eq!(2161, cursor.next_u16());   //id
