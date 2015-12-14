@@ -24,6 +24,7 @@ impl<'a> DnsPacket<'a> {
     }
 
     pub fn seek(&mut self, pos: usize) {
+        //todo: safety
         self.pos = pos;
     }
 
@@ -93,7 +94,7 @@ impl<'a> DnsPacket<'a> {
         let val = (self.buf[self.pos] as u32) << 24 |
                   (self.buf[self.pos + 1] as u32) << 16 |
                   (self.buf[self.pos + 2] as u32) << 8 |
-                  self.buf[self.pos + 3] as u32;
+                   self.buf[self.pos + 3] as u32;
         self.pos += 4;
         return Some(val);
     }

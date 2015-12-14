@@ -130,7 +130,7 @@ impl MioServer {
 
         if new_tok.is_some() {
             {
-                debug!("{:?}", DnsParser::parse(&self.requests.get(new_tok.unwrap()).unwrap().query_buf));
+                debug!("{:#?}", DnsParser::parse(&self.requests.get(new_tok.unwrap()).unwrap().query_buf));
             }
             debug!("There are {:?} in-flight requests", self.requests.count());
             self.ready(event_loop, new_tok.unwrap(), events);
