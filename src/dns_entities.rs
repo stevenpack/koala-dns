@@ -56,13 +56,13 @@ pub struct DnsName;
 pub const QR_QUERY: bool = false;
 pub const QR_RESPONSE: bool = true;
 
-#[derive(PartialEq)]
-#[derive(Debug)]
-pub enum OpCode {
-    Query=0,
-    IQuery=1,
-    Status=2
-}
+// #[derive(PartialEq)]
+// #[derive(Debug)]
+// pub enum OpCode {
+//     Query=0,
+//     IQuery=1,
+//     Status=2
+// }
 
 impl DnsHeader {
     fn parse(packet: &mut DnsPacket) -> DnsHeader {
@@ -151,11 +151,11 @@ impl DnsMessage {
     }
 
     fn new_query(header: DnsHeader, questions: Vec<DnsQuestion>) -> DnsMessage {
-        return DnsMessage::new(header, questions, vec![], DnsMessageType::Query);
+        return Self::new(header, questions, vec![], DnsMessageType::Query);
     }
 
     fn new_reply(header: DnsHeader, questions: Vec<DnsQuestion>, answers: Vec<DnsAnswer>) -> DnsMessage {
-        return DnsMessage::new(header, questions, answers, DnsMessageType::Reply);
+        return Self::new(header, questions, answers, DnsMessageType::Reply);
     }
 
     fn new(header: DnsHeader, questions: Vec<DnsQuestion>, answers: Vec<DnsAnswer>, msg_type: DnsMessageType) -> DnsMessage {
@@ -205,7 +205,7 @@ impl DnsAnswer {
         let ttl = packet.next_u32().unwrap_or_default();
         let rdlength = packet.next_u16().unwrap_or_default();
         let rdata = packet.next_bytes(rdlength as usize);
-        return DnsAnswer::new(name, atype, aclass, ttl, rdlength, rdata);
+        return Self::new(name, atype, aclass, ttl, rdlength, rdata);
     }
 }
 
@@ -233,11 +233,11 @@ impl DnsName {
     //labels may be actual labels, or pointers to previous instances of labels
     fn parse(packet: &mut DnsPacket) -> String {
         let byte = packet.peek_u8().unwrap_or_default();
-        if DnsName::is_pointer(byte) {
-            let name = DnsName::parse_pointer(packet);
+        if Self::is_pointer(byte) {
+            let name = Self::parse_pointer(packet);
             return name;
         } else {
-            let labels = DnsName::parse_labels(packet);
+            let labels = Self::parse_labels(packet);
             return labels.join(".");
         }
     }
@@ -250,7 +250,7 @@ impl DnsName {
                 //terminated with 00000000
                 Some(0) | None => more_labels = false,
                 Some(len) => {
-                    match DnsName::parse_label(packet, len as usize) {
+                    match Self::parse_label(packet, len as usize) {
                             Ok(label) => labels.push(label),
                             Err(e) => warn!("Invalid label: {}", e)
                     };
@@ -288,7 +288,7 @@ impl DnsName {
     }
 
     fn parse_pointer(packet: &mut DnsPacket) -> String {
-        let offset = DnsName::parse_offset(packet.next_u16().unwrap_or_default());
+        let offset = Self::parse_offset(packet.next_u16().unwrap_or_default());
         let current_pos = packet.pos();
         if packet.seek(offset as usize) {
             let name = Self::parse(packet);
