@@ -2,7 +2,7 @@ extern crate bytes;
 use mio::{Token, EventSet, Timeout, EventLoop, Handler, PollOpt};
 use mio::udp::UdpSocket;
 use std::net::SocketAddr;
-use dns_parser::DnsParser;
+use dns_entities::DnsMessage;
 
 #[derive(Debug)]
 #[derive(PartialEq)]
@@ -111,7 +111,7 @@ impl UdpRequest {
                 //self.response_buf = buf;
                 self.set_state(RequestState::ResponseReceived);
                 self.clear_timeout(event_loop, token);
-                debug!("{:#?}", DnsParser::parse(&buf));
+                debug!("{:#?}", DnsMessage::parse(&buf));
             }
             Ok(None) => debug!("No data received on upstream_socket. {:?}", token),
             Err(e) => println!("Receive failed on {:?}. {:?}", token, e),

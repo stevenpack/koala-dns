@@ -6,7 +6,7 @@ use mio::udp::UdpSocket;
 use mio::util::Slab;
 use std::net::SocketAddr;
 use udp_request::{UdpRequest, RequestState};
-use dns_parser::DnsParser;
+use dns_entities::DnsMessage;
 
 pub struct MioServer {
     udp_server: UdpSocket,
@@ -130,7 +130,8 @@ impl MioServer {
 
         if new_tok.is_some() {
             {
-                debug!("{:#?}", DnsParser::parse(&self.requests.get(new_tok.unwrap()).unwrap().query_buf));
+                //todo: improve
+                debug!("{:#?}", DnsMessage::parse(&self.requests.get(new_tok.unwrap()).unwrap().query_buf));
             }
             debug!("There are {:?} in-flight requests", self.requests.count());
             self.ready(event_loop, new_tok.unwrap(), events);

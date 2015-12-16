@@ -1,5 +1,3 @@
-use std::char;
-
 ///Wrapper over a buffer providing seek, next, seek etc.
 #[derive(Debug)]
 pub struct DnsPacket<'a> {
@@ -36,7 +34,6 @@ impl<'a> DnsPacket<'a> {
         return self.pos;
     }
 
-    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         return self.buf.len();
     }
@@ -81,9 +78,8 @@ impl<'a> DnsPacket<'a> {
             return None;
         }
         let byte1 = self.buf[self.pos];
-        self.pos +=1;
-        let byte2 = self.buf[self.pos ];
-        self.pos +=1;
+        let byte2 = self.buf[self.pos + 1];
+        self.pos +=2;
 
         return Some(((byte1 as u16) << 8) | byte2 as u16)
     }
@@ -101,56 +97,15 @@ impl<'a> DnsPacket<'a> {
         self.pos += 4;
         return Some(val);
     }
-
-    #[allow(dead_code)]
-    pub fn dump2(&mut self) {
-        let current_pos = self.pos();
-        let mut marker;
-        self.reset();
-        loop {
-            match self.next_u8() {
-                Some(word) => {
-                    marker = format!("< byte: {}", self.pos - 1);
-                    if self.pos - 1 == current_pos {
-                        marker = format!("{} self.pos={}", marker, self.pos);
-                    }
-                    println!("{:08b} {} {:?}", word, marker, char::from_u32(word as u32));
-                },
-                None => break
-            }
-        }
-        self.pos = current_pos;
-    }
-
-    #[allow(dead_code)]
-    pub fn dump(&mut self) {
-        let current_pos = self.pos();
-        let mut marker;
-        self.reset();
-        loop {
-            match self.next_u16() {
-                Some(word) => {
-                    marker = format!("< byte: {}-{}", self.pos - 2, self.pos - 1);
-                    if self.pos - 2 == current_pos || self.pos - 1 == current_pos {
-                        marker = format!("{} self.pos={}", marker, self.pos);
-                    }
-                    println!("{:016b} {}", word, marker);
-                },
-                None => break
-            }
-        }
-        self.pos = current_pos;
-    }
 }
 
-//or impl Iterator for WordIterator, impl Iterator for OctetIterator
-//todo: new (english) word. Hextet, for 16 bytes.
+///Iterate each 16bit word in the packet
 impl<'a> Iterator for DnsPacket<'a> {
     type Item = (u16, usize);
 
-    /*
-    Returns two octets in the order they expressed in the spec. I.e. first byte shifted to the left
-    */
+    ///
+    ///Returns two octets in the order they expressed in the spec. I.e. first byte shifted to the left
+    ///
     fn next(&mut self) -> Option<(u16, usize)> {
         match self.next_u16() {
             Some(n) => return Some((n, self.pos)),
@@ -268,5 +223,16 @@ mod tests {
         //now try again when we're two bytes away
         p.seek(len - 2);
         assert_eq!(true, p.next_u16().is_some());
+    }
+
+    #[test]
+    fn empty() {
+        let buf = [];
+        let mut p = DnsPacket::new(&buf);
+        assert_eq!(None, p.next());
+        assert_eq!(None, p.next_u8());
+        assert_eq!(None, p.next_u16());
+        assert_eq!(None, p.next_u32());
+        assert_eq!(Vec::<u8>::new(), p.next_bytes(2));
     }
 }
