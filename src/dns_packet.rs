@@ -1,4 +1,6 @@
 use std::char;
+
+///Wrapper over a buffer providing seek, next, seek etc.
 #[derive(Debug)]
 pub struct DnsPacket<'a> {
     buf: &'a [u8],
@@ -11,7 +13,6 @@ impl<'a> DnsPacket<'a> {
     }
 
     pub fn new_at(buf: &[u8], pos: usize) -> DnsPacket {
-        //debug!("{:?}", buf);
         return DnsPacket {
             buf: buf,
             pos: pos
@@ -23,12 +24,14 @@ impl<'a> DnsPacket<'a> {
         self.pos = 0;
     }
 
-    pub fn seek(&mut self, pos: usize) {
-        //todo: safety
+    pub fn seek(&mut self, pos: usize) -> bool {
+        if pos > self.len() {
+            return false;
+        }
         self.pos = pos;
+        return true;
     }
 
-    #[allow(dead_code)]
     pub fn pos(&self) -> usize {
         return self.pos;
     }
@@ -68,30 +71,30 @@ impl<'a> DnsPacket<'a> {
         }
     }
 
+    ///Return the next u16 IFF there are two bytes to read. If there is only one, None is returned
+    ///and pos is not changed
+    ///Callers should check and call next_u8 if required
     pub fn next_u16(&mut self) -> Option<u16> {
         //todo: check if this is necessary... allowing to only read 8 of the 16 bits
         let len = self.buf.len();
-        if self.pos >= len {
+        if self.pos + 1 >= len {
             return None;
         }
         let byte1 = self.buf[self.pos];
-        self.pos += 1;
+        self.pos +=1;
+        let byte2 = self.buf[self.pos ];
+        self.pos +=1;
 
-        let mut byte2 = 0b0000_0000;
-        if self.pos < len {
-            byte2 = self.buf[self.pos];
-            self.pos +=1;
-        }
         return Some(((byte1 as u16) << 8) | byte2 as u16)
     }
 
     pub fn next_u32(&mut self) -> Option<u32> {
         let len = self.buf.len();
-        if (self.pos + 4) >= len {
+        if (self.pos + 3) >= len {
             return None;
         }
 
-        let val = (self.buf[self.pos] as u32) << 24 |
+        let val = (self.buf[self.pos]     as u32) << 24 |
                   (self.buf[self.pos + 1] as u32) << 16 |
                   (self.buf[self.pos + 2] as u32) << 8 |
                    self.buf[self.pos + 3] as u32;
@@ -119,6 +122,7 @@ impl<'a> DnsPacket<'a> {
         self.pos = current_pos;
     }
 
+    #[allow(dead_code)]
     pub fn dump(&mut self) {
         let current_pos = self.pos();
         let mut marker;
@@ -168,18 +172,101 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn next_u32() {
-        println!("u32: {:?}", DnsPacket::new(&test_buf()).next_u32());
+        let buf = &test_buf();
+        let mut p = DnsPacket::new(buf);
+
+        //println!("u32: {:?}", p.next_u32());
+        assert_eq!(141623552, p.next_u32().unwrap());
+
+        let len = p.len();
+        //try read 4 bytes when we're 3 byte from the end
+        p.seek(len - 3);
+        assert_eq!(None, p.next_u32());
+        //now try again when we're two bytes away
+        p.seek(len - 4);
+        assert_eq!(true, p.next_u32().is_some());
+
     }
 
     #[test]
-    #[ignore]
+    fn seek() {
+        let buf = &test_buf();
+        let mut p = DnsPacket::new(buf);
+        assert_eq!(true, p.seek(5));
+        assert_eq!(5, p.pos());
+        //can't go past end
+        assert_eq!(false, p.seek(1000));
+        //position unchanged
+        assert_eq!(5, p.pos());
+    }
+
+    #[test]
+    fn peek_u8() {
+        let buf = &test_buf();
+        let p = DnsPacket::new(buf);
+        assert_eq!(8, p.peek_u8().unwrap());
+        //don't move position for a peek
+        assert_eq!(0, p.pos());
+    }
+
+    #[test]
+    fn next_u8() {
+        let buf = &test_buf();
+        let mut p = DnsPacket::new(buf);
+        assert_eq!(8, p.next_u8().unwrap());
+        //move position for a peek
+        assert_eq!(1, p.pos());
+        //return none, don't panic at the end
+        let pos = p.len();
+        p.seek(pos);
+        assert_eq!(None, p.next_u8());
+    }
+
+    #[test]
+    fn next_u8_boundary() {
+        let buf = &test_buf();
+        let mut p = DnsPacket::new(buf);
+        let len = p.len();
+        //go to the end
+        assert_eq!(true, p.seek(len));
+        //can't read past the end
+        assert_eq!(None, p.next_u8());
+    }
+
+    #[test]
     fn iterate() {
         let buf = test_buf();
         let packet = DnsPacket::new(&buf);
         for word in packet {
-            //println!("word: {:016b}", word);
+            println!("word: {:016b} {:?}", word.0, word.1);
         }
+    }
+
+    #[test]
+    fn next_bytes() {
+        let buf = test_buf();
+        let mut p = DnsPacket::new(&buf);
+        //read some bytes
+        let vec = p.next_bytes(10);
+        assert_eq!(vec.len(), 10);
+        //read past the end
+        let vec2 = p.next_bytes(100);
+        println!("vec2.len()={:?}", vec2.len());
+        //make sure no errors and we've just read the remaining
+        assert_eq!(vec2.len(), buf.len() - 10);
+    }
+
+    #[test]
+    fn next_u16() {
+        let buf = test_buf();
+        let mut p = DnsPacket::new(&buf);
+        let len = p.len();
+        //try read 2 bytes when we're 1 byte from the end
+        p.seek(len - 1);
+        assert_eq!(None, p.next_u16());
+        //now try again when we're two bytes away
+        p.seek(len - 2);
+        assert_eq!(true, p.next_u16().is_some());
     }
 }

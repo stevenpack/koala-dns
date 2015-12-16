@@ -188,7 +188,6 @@ impl DnsParser {
 #[cfg(test)]
 mod tests {
     use super::DnsParser;
-    use dns_packet::DnsPacket;
 
     fn test_query_buf() -> Vec<u8> {
         /*

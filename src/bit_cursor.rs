@@ -1,6 +1,6 @@
-/*
-A LeftToRight BitCursor for reading bits
-*/
+///
+///A LeftToRight BitCursor for reading bits
+///
 pub struct BitCursor {
     bits: u16,
     pos: usize
@@ -45,6 +45,8 @@ impl BitCursor {
         return self.calc_and_advance(16);
     }
 
+    ///Returns the next bits by shifting (rotating) left to push the bits to the far right
+    ///ans using a mask to get the value.
     fn calc_and_advance(&mut self, bits: usize) -> u16 {
         let shifted = self.shift(bits as u16);
         let mask = self.mask(bits);
@@ -88,17 +90,7 @@ impl BitCursor {
 mod tests {
     use super::BitCursor;
 
-    fn test_buf() -> Vec<u8> {
-        /*
-         00001000 01110001 00000001 00000000 00000000 00000001 00000000 00000000 00000000
-         00000000 00000000 00000000 00000101 01111001 01100001 01101000 01101111 01101111
-         00000011 01100011 01101111 01101101 00000000 00000000 00000001 00000000 00000001
-        */
-        return vec![8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0, 0, 1, 0, 1];
-    }
-
     #[test]
-    #[ignore]
     fn mask() {
         let cursor = BitCursor::new_with(12);
         for i in vec![1,2,3,4] {
@@ -117,7 +109,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn shift() {
         //read as a bit, then a u4. so true (0001), then 3(0011)
         let mut cursor = BitCursor::new_with(0b1001_1000_0000_0000);
@@ -127,7 +118,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn next() {
         let mut cursor = BitCursor::new_with(0b0000_1000_0111_0001); //1st word
         assert_eq!(2161, cursor.next_u16());   //id
