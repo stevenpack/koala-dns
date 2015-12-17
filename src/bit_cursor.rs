@@ -3,24 +3,20 @@
 ///
 pub struct BitCursor {
     bits: u16,
-    pos: usize
+    pos: usize,
 }
 
 impl BitCursor {
-
     pub fn new() -> BitCursor {
-        return BitCursor{
-            bits: 0,
-            pos: 0
-        }
+        return BitCursor { bits: 0, pos: 0 };
     }
 
     #[allow(dead_code)]
     pub fn new_with(bits: u16) -> BitCursor {
-        return BitCursor{
+        return BitCursor {
             bits: bits,
-            pos: 0
-        }
+            pos: 0,
+        };
     }
 
     pub fn set(&mut self, bits: u16) {
@@ -59,21 +55,21 @@ impl BitCursor {
         return result;
     }
 
-    //rotate the bits to line up with the mask
+    // rotate the bits to line up with the mask
     fn shift(&mut self, size: u16) -> u16 {
         let count = (self.pos + size as usize) as u32;
-        return self.bits.rotate_left(count)
+        return self.bits.rotate_left(count);
     }
 
     fn advance(&mut self, count: usize) {
         self.pos += count;
     }
 
-    /*
-    Returns a mask to read that many bits. E.g.
-    0000 0000 0000 0001 to read 1 bit
-    0000 0000 0000 1111 to read 4 bits
-    */
+    //
+    // Returns a mask to read that many bits. E.g.
+    // 0000 0000 0000 0001 to read 1 bit
+    // 0000 0000 0000 1111 to read 4 bits
+    //
     pub fn mask(&self, bits: usize) -> u16 {
         if bits == 0 {
             return 0;
@@ -93,7 +89,7 @@ mod tests {
     #[test]
     fn mask() {
         let cursor = BitCursor::new_with(12);
-        for i in vec![1,2,3,4] {
+        for i in vec![1, 2, 3, 4] {
             let mask = cursor.mask(i);
             println!("{:?} -> {:016b}", i, mask);
             match i {
@@ -101,7 +97,7 @@ mod tests {
                 2 => assert_eq!(mask, 0b0000_0000_0000_0011),
                 3 => assert_eq!(mask, 0b0000_0000_0000_0111),
                 4 => assert_eq!(mask, 0b0000_0000_0000_1111),
-                _ => unreachable!()
+                _ => unreachable!(),
             }
 
 
@@ -110,7 +106,7 @@ mod tests {
 
     #[test]
     fn shift() {
-        //read as a bit, then a u4. so true (0001), then 3(0011)
+        // read as a bit, then a u4. so true (0001), then 3(0011)
         let mut cursor = BitCursor::new_with(0b1001_1000_0000_0000);
         assert_eq!(0b0011_0000_0000_0001, cursor.shift(1));
         cursor.advance(1);

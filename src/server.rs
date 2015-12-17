@@ -7,7 +7,7 @@ use server_mio::MioServer;
 pub struct Server {
     pub port: u32,
     pub upstream_server: SocketAddr,
-    pub timeout: u64
+    pub timeout: u64,
 }
 
 pub trait Start {
@@ -16,10 +16,12 @@ pub trait Start {
 
 impl Start for Server {
     fn start(&self) {
-        info!("Starting server on port {} and upstream {}", self.port, self.upstream_server);
+        info!("Starting server on port {} and upstream {}",
+              self.port,
+              self.upstream_server);
         let address = format!("0.0.0.0:{:?}", self.port).parse().unwrap();
 
-        //todo: new thread, restart if die
+        // todo: new thread, restart if die
         MioServer::start(address, self.upstream_server, self.timeout);
     }
 }
