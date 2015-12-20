@@ -93,9 +93,7 @@ impl MioServer {
     fn send_reply(&mut self) {
         debug!("There are {} responses to send", self.responses.len());
         match self.responses.pop() {
-            Some(reply) => {
-                reply.send(&self.udp_server);
-            }
+            Some(reply) => reply.send(&self.udp_server),
             None => warn!("Nothing to send."),
         }
     }
