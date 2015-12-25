@@ -9,7 +9,7 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "koala_dns_server"
-path = "src/bin.rs"
+path = "src/main.rs"
 
 [dependencies]
 getopts = "0.2"

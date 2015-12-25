@@ -17,16 +17,17 @@ mod bit_cursor;
 mod dns_entities;
 mod dns_packet;
 
-use server::Start;
+use server::ServerOps;
 
 fn main() {
 	env_logger::init().unwrap_or_else(|err| println!("Failed to initialize logger. {:?}", err));
 
     let config = command_line::parse_args();
-    let server = server::Server {
+    let mut server = server::Server {
 		 port: config.port,
 		 upstream_server: config.server,
-		 timeout: config.timeout
+		 timeout: config.timeout,
+         sender: None
 	  };
     server.start();
 }

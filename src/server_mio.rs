@@ -5,6 +5,9 @@ use mio::{Evented, Token, EventLoop, EventSet, PollOpt, Handler, Timeout};
 use mio::udp::UdpSocket;
 use mio::util::Slab;
 use std::net::SocketAddr;
+use std::thread;
+use std::thread::JoinHandle;
+use mio::Sender;
 use udp_request::{UdpRequest, RequestState};
 use dns_entities::DnsMessage;
 
@@ -20,9 +23,9 @@ const UDP_SERVER_TOKEN: Token = Token(1);
 
 impl Handler for MioServer {
     type Timeout = Token;
-    type Message = ();
+    type Message = String;
 
-    fn ready(&mut self, event_loop: &mut EventLoop<MioServer>, token: Token, events: EventSet) {
+    fn ready(&mut self, event_loop: &mut EventLoop<Self>, token: Token, events: EventSet) {
         match token {
             UDP_SERVER_TOKEN => self.server_ready(event_loop, events),
             client_token => self.upstream_ready(event_loop, events, client_token),
@@ -33,6 +36,13 @@ impl Handler for MioServer {
     fn timeout(&mut self, event_loop: &mut EventLoop<Self>, timeout: Self::Timeout) {
         info!("Got timeout: {:?}", timeout);
         self.remove_request(timeout);
+    }
+
+    fn notify(&mut self, event_loop: &mut EventLoop<Self>, msg: String) {
+        info!("Got a message {}", msg);
+        if msg == format!("{}", "Stop!") {
+            event_loop.shutdown()
+        }
     }
 }
 
@@ -160,7 +170,10 @@ impl MioServer {
         return udp_socket;
     }
 
-    pub fn start(address: SocketAddr, upstream_server: SocketAddr, timeout: u64) {
+    pub fn start(address: SocketAddr,
+                 upstream_server: SocketAddr,
+                 timeout: u64)
+                 -> (Sender<String>, JoinHandle<()>) {
         let udp_server = MioServer::bind_udp(address);
 
         let mut event_loop = EventLoop::new().unwrap();
@@ -168,7 +181,7 @@ impl MioServer {
                                     UDP_SERVER_TOKEN,
                                     EventSet::readable(),
                                     PollOpt::edge() | PollOpt::oneshot());
-
+        let tx = event_loop.channel();
         let max_connections = u16::max_value() as usize;
         let mut mio_server = MioServer {
             udp_server: udp_server,
@@ -177,9 +190,12 @@ impl MioServer {
             requests: Slab::new_starting_at(Token(2), max_connections),
             responses: Vec::<UdpRequest>::new(),
         };
-        info!("Mio server running...");
-        let _ = event_loop.run(&mut mio_server);
-        drop(mio_server.udp_server);
+        let run_handle = thread::spawn(move || {
+            info!("Mio server running...");
+            let _ = event_loop.run(&mut mio_server);
+            drop(mio_server.udp_server);
+        });
+        return (tx, run_handle);
     }
 }
 
