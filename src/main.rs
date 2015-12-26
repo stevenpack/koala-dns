@@ -23,11 +23,6 @@ fn main() {
 	env_logger::init().unwrap_or_else(|err| println!("Failed to initialize logger. {:?}", err));
 
     let config = command_line::parse_args();
-    let mut server = server::Server {
-		 port: config.port,
-		 upstream_server: config.server,
-		 timeout: config.timeout,
-         sender: None
-	  };
+    let mut server = server::Server::new(config.port, config.server, config.timeout);
     server.start();
 }

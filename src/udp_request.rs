@@ -11,6 +11,7 @@ pub enum RequestState {
     Accepted,
     Forwarded,
     ResponseReceived,
+    Error,
 }
 
 //
@@ -83,7 +84,7 @@ impl UdpRequest {
         }
     }
 
-    fn clear_timeout<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token)
+    pub fn clear_timeout<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token)
         where T: Handler<Timeout = Token>
     {
         if event_loop.clear_timeout(self.timeout_handle.unwrap()) {
@@ -114,7 +115,10 @@ impl UdpRequest {
                         state. {:?}",
                        token)
             }
-            Err(e) => error!("Failed to write to upstream_socket. {:?}. {:?}", token, e),
+            Err(e) => {
+                error!("Failed to write to upstream_socket. {:?}. {:?}", token, e);
+                self.set_state(RequestState::Error);
+            }
         }
         self.register_upstream(event_loop, EventSet::readable(), token);
         self.set_timeout(event_loop, token);
@@ -155,7 +159,7 @@ impl UdpRequest {
             RequestState::New => self.accept(event_loop, token, events),
             RequestState::Accepted => self.forward(event_loop, token, events),
             RequestState::Forwarded => self.receive(event_loop, token, events),
-            RequestState::ResponseReceived => {
+            RequestState::ResponseReceived | RequestState::Error => {
                 error!("Unexpected socket event for {:?}. State {:?}",
                        token,
                        self.state)

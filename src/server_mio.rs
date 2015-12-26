@@ -69,6 +69,13 @@ impl MioServer {
             self.queue_response(token);
             self.reregister_server(event_loop, EventSet::readable() | EventSet::writable());
         }
+        if self.requests[token].state == RequestState::Error {
+            info!("Error state. Removing request. {:?}", token);
+            let request = self.remove_request(token);
+            // hack:: match and rethink handling error
+            info!("Clearing timeout: {:?}", token);
+            request.unwrap().clear_timeout(event_loop, token);
+        }
     }
 
     fn queue_response(&mut self, token: Token) {

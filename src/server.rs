@@ -14,12 +14,23 @@ pub struct Server {
 }
 
 pub trait ServerOps {
+    fn new(port: u32, upstream_server: SocketAddr, timeout: u64) -> Server;
     fn start(&mut self);
     fn begin_start(&mut self) -> JoinHandle<()>;
     fn stop(&mut self);
 }
 
 impl ServerOps for Server {
+    fn new(port: u32, upstream_server: SocketAddr, timeout: u64) -> Server {
+        let mut server = Server {
+            port: port,
+            upstream_server: upstream_server,
+            timeout: timeout,
+            sender: None,
+        };
+        return server;
+    }
+
     fn start(&mut self) {
         let run_handle = self.begin_start();
         run_handle.join();
@@ -41,12 +52,12 @@ impl ServerOps for Server {
         // let ref sender = self.sender.unwrap();
         // sender.send(format!("{}", "xx"));
         // info!("Sent stop");
-        info!("port {}", self.port);
-        info!("sender {:?}", self.sender);
-        // match self.sender {
-        //     Some(ref x) => x.send(format!("{:?}", "Stop!")).unwrap(),
-        //     None => warn!("Sender is null. Have you called start? {:?}", "xx"),
-        // };
+        // info!("port {}", self.port);
+        // info!("sender {:?}", self.sender);
+        match self.sender {
+            Some(ref x) => x.send(format!("{:?}", "Stop!")).unwrap(),
+            None => warn!("Sender is null. Have you called start? {:?}", "xx"),
+        };
         // let ref x = self.sender;
         // x.as_ref().unwrap().send(format!("{:?}", "Stop!"));
     }
