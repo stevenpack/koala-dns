@@ -65,17 +65,22 @@ impl MioServer {
                       events: EventSet,
                       token: Token) {
         self.requests[token].socket_ready(event_loop, token, events);
-        if self.requests[token].state == RequestState::ResponseReceived {
-            self.queue_response(token);
-            self.reregister_server(event_loop, EventSet::readable() | EventSet::writable());
+
+        match self.requests[token].state {
+            RequestState::Error => {
+                info!("Error state. Removing request. {:?}", token);
+                let request = self.remove_request(token);
+                // hack:: match and rethink handling error
+                info!("Clearing timeout: {:?}", token);
+                request.unwrap().clear_timeout(event_loop, token);
+            }
+            RequestState::ResponseReceived => {
+                self.queue_response(token);
+                self.reregister_server(event_loop, EventSet::readable() | EventSet::writable());
+            }
+            _ => {}
         }
-        if self.requests[token].state == RequestState::Error {
-            info!("Error state. Removing request. {:?}", token);
-            let request = self.remove_request(token);
-            // hack:: match and rethink handling error
-            info!("Clearing timeout: {:?}", token);
-            request.unwrap().clear_timeout(event_loop, token);
-        }
+
     }
 
     fn queue_response(&mut self, token: Token) {
@@ -197,11 +202,16 @@ impl MioServer {
             requests: Slab::new_starting_at(Token(2), max_connections),
             responses: Vec::<UdpRequest>::new(),
         };
-        let run_handle = thread::spawn(move || {
-            info!("Mio server running...");
-            let _ = event_loop.run(&mut mio_server);
-            drop(mio_server.udp_server);
-        });
+        let run_handle = thread::Builder::new()
+                             .name("udp_srv_thread".to_string())
+                             .spawn(move || {
+                                 info!("Mio server running...");
+                                 let _ = event_loop.run(&mut mio_server);
+                                 drop(mio_server.udp_server);
+                             })
+                             .unwrap_or_else(|e| {
+                                 panic!("Failed to start udp server. Error was {}", e)
+                             });
         return (tx, run_handle);
     }
 }
