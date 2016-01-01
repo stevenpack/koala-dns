@@ -10,10 +10,9 @@ const GOOGLE_DNS: &'static str = "8.8.8.8:53";
 const FAKE_DNS: &'static str = "8.8.8.8:9999";
 
 #[test]
-#[ignore]
 // #[ignore(message="will hang until stop implemented")]
 fn round_trip() {
-    let mut server = build_with(String::from_str(GOOGLE_DNS).unwrap(), 2000);
+    let mut server = build_with(12345, String::from_str(GOOGLE_DNS).unwrap(), 2000);
 
     let output_str = start(&mut server);
     println!("{:?}", output_str);
@@ -26,7 +25,7 @@ fn round_trip() {
 
 #[test]
 fn timeout() {
-    let mut server = build_with(String::from_str(FAKE_DNS).unwrap(), 200);
+    let mut server = build_with(12346, String::from_str(FAKE_DNS).unwrap(), 200);
 
     let output_str = start(&mut server);
     println!("{:?}", output_str);
@@ -56,8 +55,8 @@ fn start(server: &mut Server) -> String {
     return output_str;
 }
 
-fn build_with(server: String, timeout_ms: u64) -> Server {
-    let mut server = Server::new(12345,
+fn build_with(port: u32, server: String, timeout_ms: u64) -> Server {
+    let mut server = Server::new(port,
                                  SocketAddr::from_str(server.as_str()).unwrap(),
                                  timeout_ms);
     return server;
