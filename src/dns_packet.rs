@@ -1,3 +1,5 @@
+use buf::*;
+
 ///Wrapper over a buffer providing seek, next, seek etc.
 #[derive(Debug)]
 pub struct DnsPacket<'a> {
@@ -5,6 +7,22 @@ pub struct DnsPacket<'a> {
     pos: usize,
 }
 
+impl<'a> DirectAccessBuf for DnsPacket<'a> {
+    fn pos(&self) -> usize {
+        return self.pos;
+    }
+
+    fn seek(&mut self, pos: usize) -> bool {
+        self.pos = pos;
+        // todo: check
+        return true;
+    }
+}
+impl<'a> BufRead for DnsPacket<'a> {
+    fn buf(&self) -> &[u8] {
+        return self.buf;
+    }
+}
 
 impl<'a> DnsPacket<'a> {
     pub fn new(buf: &[u8]) -> DnsPacket {
@@ -16,85 +34,6 @@ impl<'a> DnsPacket<'a> {
             buf: buf,
             pos: pos,
         };
-    }
-
-    #[allow(dead_code)]
-    pub fn reset(&mut self) {
-        self.pos = 0;
-    }
-
-    pub fn seek(&mut self, pos: usize) -> bool {
-        if pos > self.len() {
-            return false;
-        }
-        self.pos = pos;
-        return true;
-    }
-
-    pub fn pos(&self) -> usize {
-        return self.pos;
-    }
-
-    pub fn len(&self) -> usize {
-        return self.buf.len();
-    }
-
-    pub fn peek_u8(&self) -> Option<u8> {
-        let len = self.buf.len();
-        if self.pos >= len {
-            return None;
-        }
-        return Some(self.buf[self.pos]);
-    }
-
-    pub fn next_bytes(&mut self, bytes: usize) -> Vec<u8> {
-        let mut slice = Vec::with_capacity(bytes);
-        for _ in 0..bytes {
-            let byte = self.next_u8();
-            match byte {
-                Some(b) => slice.push(b),
-                None => break,
-            }
-        }
-        return slice;
-    }
-
-    pub fn next_u8(&mut self) -> Option<u8> {
-        match self.peek_u8() {
-            Some(byte) => {
-                self.pos += 1;
-                return Some(byte);
-            }
-            None => return None,
-        }
-    }
-
-    ///Return the next u16 IFF there are two bytes to read. If there is only one, None is returned
-    ///and pos is not changed
-    ///Callers should check and call next_u8 if required
-    pub fn next_u16(&mut self) -> Option<u16> {
-        let len = self.buf.len();
-        if self.pos + 1 >= len {
-            return None;
-        }
-        let byte1 = self.buf[self.pos];
-        let byte2 = self.buf[self.pos + 1];
-        self.pos += 2;
-
-        return Some(((byte1 as u16) << 8) | byte2 as u16);
-    }
-
-    pub fn next_u32(&mut self) -> Option<u32> {
-        let len = self.buf.len();
-        if (self.pos + 3) >= len {
-            return None;
-        }
-
-        let val = (self.buf[self.pos] as u32) << 24 | (self.buf[self.pos + 1] as u32) << 16 |
-                  (self.buf[self.pos + 2] as u32) << 8 |
-                  self.buf[self.pos + 3] as u32;
-        self.pos += 4;
-        return Some(val);
     }
 }
 

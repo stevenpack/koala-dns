@@ -1,6 +1,7 @@
 use bit_cursor::BitCursor;
 use dns_packet::DnsPacket;
 use std::string::FromUtf8Error;
+use buf::*;
 
 #[derive(Debug)]
 pub struct DnsMessage {
