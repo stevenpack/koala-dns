@@ -5,6 +5,7 @@ pub struct DnsPacket<'a> {
     pos: usize,
 }
 
+
 impl<'a> DnsPacket<'a> {
     pub fn new(buf: &[u8]) -> DnsPacket {
         return DnsPacket::new_at(buf, 0);
@@ -72,7 +73,6 @@ impl<'a> DnsPacket<'a> {
     ///and pos is not changed
     ///Callers should check and call next_u8 if required
     pub fn next_u16(&mut self) -> Option<u16> {
-        // todo: check if this is necessary... allowing to only read 8 of the 16 bits
         let len = self.buf.len();
         if self.pos + 1 >= len {
             return None;
@@ -100,6 +100,7 @@ impl<'a> DnsPacket<'a> {
 
 ///Iterate each 16bit word in the packet
 impl<'a> Iterator for DnsPacket<'a> {
+    ///2 octets of data and the position
     type Item = (u16, usize);
 
     ///

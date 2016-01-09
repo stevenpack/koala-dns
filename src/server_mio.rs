@@ -64,6 +64,7 @@ impl MioServer {
                       event_loop: &mut EventLoop<MioServer>,
                       events: EventSet,
                       token: Token) {
+
         self.requests[token].socket_ready(event_loop, token, events);
 
         match self.requests[token].state {
@@ -214,13 +215,4 @@ impl MioServer {
                              });
         return (tx, run_handle);
     }
-}
-
-
-#[cfg(test)]
-mod tests {
-    // use super::*;
-    #[test]
-    #[ignore]
-    fn it_works() {}
 }

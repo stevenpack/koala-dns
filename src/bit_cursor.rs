@@ -25,25 +25,25 @@ impl BitCursor {
     }
 
     pub fn next_bool(&mut self) -> bool {
-        return self.calc_and_advance(1) == 1;
+        return self.read_and_advance(1) == 1;
     }
 
     pub fn next_u4(&mut self) -> u8 {
-        return self.calc_and_advance(4) as u8;
+        return self.read_and_advance(4) as u8;
     }
 
     #[allow(dead_code)]
     pub fn next_u8(&mut self) -> u8 {
-        return self.calc_and_advance(8) as u8;
+        return self.read_and_advance(8) as u8;
     }
 
     pub fn next_u16(&mut self) -> u16 {
-        return self.calc_and_advance(16);
+        return self.read_and_advance(16);
     }
 
     ///Returns the next bits by shifting (rotating) left to push the bits to the far right
     ///ans using a mask to get the value.
-    fn calc_and_advance(&mut self, bits: usize) -> u16 {
+    fn read_and_advance(&mut self, bits: usize) -> u16 {
         let shifted = self.shift(bits as u16);
         let mask = self.mask(bits);
         let result = shifted & mask;

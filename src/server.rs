@@ -22,7 +22,7 @@ pub trait ServerOps {
 
 impl ServerOps for Server {
     fn new(port: u32, upstream_server: SocketAddr, timeout: u64) -> Server {
-        let mut server = Server {
+        let server = Server {
             port: port,
             upstream_server: upstream_server,
             timeout: timeout,
@@ -33,7 +33,7 @@ impl ServerOps for Server {
 
     fn start(&mut self) {
         let run_handle = self.begin_start();
-        run_handle.join();
+        let _ = run_handle.join();
     }
 
     fn begin_start(&mut self) -> JoinHandle<()> {

@@ -16,6 +16,7 @@ mod udp_request;
 mod bit_cursor;
 mod dns_entities;
 mod dns_packet;
+mod buf;
 
 use server::ServerOps;
 
