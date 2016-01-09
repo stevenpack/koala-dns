@@ -1,5 +1,5 @@
-use bit_cursor::BitCursor;
-use dns_packet::DnsPacket;
+use dns::bit_cursor::BitCursor;
+use dns::dns_packet::DnsPacket;
 use std::string::FromUtf8Error;
 use buf::*;
 

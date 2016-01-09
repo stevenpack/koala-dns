@@ -2,7 +2,7 @@ extern crate bytes;
 use mio::{Token, EventSet, Timeout, EventLoop, Handler, PollOpt};
 use mio::udp::UdpSocket;
 use std::net::SocketAddr;
-use dns_entities::DnsMessage;
+use dns::dns_entities::DnsMessage;
 
 #[derive(Debug)]
 #[derive(PartialEq)]

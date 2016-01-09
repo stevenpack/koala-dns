@@ -13,8 +13,10 @@ impl<'a> DirectAccessBuf for DnsPacket<'a> {
     }
 
     fn seek(&mut self, pos: usize) -> bool {
+        if pos > self.len() {
+            return false;
+        }
         self.pos = pos;
-        // todo: check
         return true;
     }
 }
@@ -55,6 +57,7 @@ impl<'a> Iterator for DnsPacket<'a> {
 #[cfg(test)]
 mod tests {
     use super::DnsPacket;
+    use buf::*;
 
     fn test_buf() -> Vec<u8> {
         //

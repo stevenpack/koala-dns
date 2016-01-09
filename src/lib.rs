@@ -11,11 +11,9 @@ extern crate test;
 
 pub mod server;
 
-
+mod dns;
 mod command_line;
 mod server_mio;
 mod udp_request;
-mod bit_cursor;
-mod dns_entities;
-mod dns_packet;
+
 mod buf;

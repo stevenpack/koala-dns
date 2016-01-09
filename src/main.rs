@@ -13,9 +13,7 @@ mod command_line;
 mod server;
 mod server_mio;
 mod udp_request;
-mod bit_cursor;
-mod dns_entities;
-mod dns_packet;
+mod dns;
 mod buf;
 
 use server::ServerOps;

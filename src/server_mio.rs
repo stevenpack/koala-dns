@@ -1,6 +1,7 @@
 extern crate mio;
 extern crate bytes;
 
+
 use mio::{Evented, Token, EventLoop, EventSet, PollOpt, Handler, Timeout};
 use mio::udp::UdpSocket;
 use mio::util::Slab;
@@ -9,7 +10,7 @@ use std::thread;
 use std::thread::JoinHandle;
 use mio::Sender;
 use udp_request::{UdpRequest, RequestState};
-use dns_entities::DnsMessage;
+use dns::dns_entities::DnsMessage;
 
 pub struct MioServer {
     udp_server: UdpSocket,
