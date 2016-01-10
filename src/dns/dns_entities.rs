@@ -1,5 +1,6 @@
 use dns::bit_cursor::BitCursor;
 use dns::dns_packet::DnsPacket;
+use dns::mut_dns_packet::MutDnsPacket;
 use std::string::FromUtf8Error;
 use buf::*;
 
@@ -66,6 +67,38 @@ pub const QR_RESPONSE: bool = true;
 // }
 
 impl DnsHeader {
+    pub fn new_error(request_header: DnsHeader, rcode: u8) -> DnsHeader {
+        let header = DnsHeader {
+            id: request_header.id,
+            qr: true,
+            opcode: request_header.opcode,
+            aa: request_header.aa,
+            tc: false, // todo
+            rd: request_header.rd,
+            ra: request_header.ra,
+            z: 0,
+            rcode: rcode,
+            qdcount: 0,
+            ancount: 0,
+            nscount: 0,
+            arcount: 0,
+        };
+        return header;
+    }
+
+    // todo: trait?
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut buf = vec![0; 96];
+        let mut bytes = buf.as_mut_slice();
+        let mut packet = MutDnsPacket::new(bytes);
+        packet.write_u16(self.id);
+        // todo: write stuff... need bitcursor to write bits...
+        info!("{:?}", packet);
+        let mut vec = Vec::from(packet.buf());
+        vec.truncate(packet.len());
+        return vec;
+    }
+
     fn parse(packet: &mut DnsPacket) -> DnsHeader {
         // todo: see bitflags macro
         let mut id: u16 = 0;

@@ -3,6 +3,7 @@ use mio::{Token, EventSet, Timeout, EventLoop, Handler, PollOpt};
 use mio::udp::UdpSocket;
 use std::net::SocketAddr;
 use dns::dns_entities::DnsMessage;
+use dns::dns_entities::DnsHeader;
 
 #[derive(Debug)]
 #[derive(PartialEq)]
@@ -75,6 +76,10 @@ impl UdpRequest {
         // todo fail the reqest
     }
 
+    pub fn on_timeout(&mut self) {
+        self.hack_error();
+    }
+
     fn set_timeout<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token)
         where T: Handler<Timeout = Token>
     {
@@ -90,7 +95,7 @@ impl UdpRequest {
         if event_loop.clear_timeout(self.timeout_handle.unwrap()) {
             debug!("Timeout cleared for {:?}", token);
         } else {
-            debug!("Could not clear timeout for {:?}", token);
+            warn!("Could not clear timeout for {:?}", token);
         }
     }
 
@@ -117,6 +122,7 @@ impl UdpRequest {
             }
             Err(e) => {
                 error!("Failed to write to upstream_socket. {:?}. {:?}", token, e);
+                self.hack_error();
                 self.set_state(RequestState::Error);
             }
         }
@@ -142,7 +148,10 @@ impl UdpRequest {
                 debug!("{:#?}", DnsMessage::parse(&buf));
             }
             Ok(None) => debug!("No data received on upstream_socket. {:?}", token),
-            Err(e) => println!("Receive failed on {:?}. {:?}", token, e),
+            Err(e) => {
+                println!("Receive failed on {:?}. {:?}", token, e);
+                self.set_state(RequestState::Error);
+            }
         }
     }
     pub fn socket_ready<T>(&mut self,
@@ -168,9 +177,20 @@ impl UdpRequest {
     }
 
     pub fn send(&self, socket: &UdpSocket) {
+        info!("{:?} bytes to send", self.response_buf.len());
         match socket.send_to(&mut &self.response_buf.as_slice(), &self.client_addr) {
             Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, self.client_addr),
             Err(e) => error!("Failed to send. {:?} Error was {:?}", self.client_addr, e),
         }
+    }
+
+    pub fn hack_error(&mut self) {
+        info!("Sending back an error");
+        let req = DnsMessage::parse(&self.query_buf);
+        let reply = DnsHeader::new_error(req.header, 2);
+        debug!("{:#?}", reply);
+        let mut vec = reply.to_bytes();
+        let mut bytes = vec.as_slice();
+        self.response_buf.push_all(bytes);
     }
 }

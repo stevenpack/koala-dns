@@ -24,7 +24,7 @@ const UDP_SERVER_TOKEN: Token = Token(1);
 
 impl Handler for MioServer {
     type Timeout = Token;
-    type Message = String;
+    type Message = String; //todo: make enum
 
     fn ready(&mut self, event_loop: &mut EventLoop<Self>, token: Token, events: EventSet) {
         match token {
@@ -36,7 +36,15 @@ impl Handler for MioServer {
     #[allow(unused_variables)]
     fn timeout(&mut self, event_loop: &mut EventLoop<Self>, timeout: Self::Timeout) {
         info!("Got timeout: {:?}", timeout);
-        self.remove_request(timeout);
+        match self.requests.get_mut(timeout) {
+            Some(mut request) => {
+                request.on_timeout();
+            }
+            None => warn!("Timed out request wasn't present. {:?}", timeout),
+        }
+        self.queue_response(timeout);
+        self.send_reply();
+
     }
 
     fn notify(&mut self, event_loop: &mut EventLoop<Self>, msg: String) {
@@ -70,11 +78,14 @@ impl MioServer {
 
         match self.requests[token].state {
             RequestState::Error => {
-                info!("Error state. Removing request. {:?}", token);
-                let request = self.remove_request(token);
+                // info!("Error state. Removing request. {:?}", token);
+                // let mut request = self.requests.get_mut(token);
                 // hack:: match and rethink handling error
                 info!("Clearing timeout: {:?}", token);
-                request.unwrap().clear_timeout(event_loop, token);
+                // request.unwrap().clear_timeout(event_loop, token);
+                // request.unwrap().hack_error();
+                self.queue_response(token);
+                self.reregister_server(event_loop, EventSet::readable() | EventSet::writable());
             }
             RequestState::ResponseReceived => {
                 self.queue_response(token);
