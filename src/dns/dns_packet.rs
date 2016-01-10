@@ -12,12 +12,12 @@ impl<'a> DirectAccessBuf for DnsPacket<'a> {
         return self.pos;
     }
 
-    fn seek(&mut self, pos: usize) -> bool {
-        if pos > self.len() {
-            return false;
-        }
+    fn set_pos(&mut self, pos: usize) {
         self.pos = pos;
-        return true;
+    }
+
+    fn len(&self) -> usize {
+        return self.buf().len();
     }
 }
 impl<'a> BufRead for DnsPacket<'a> {

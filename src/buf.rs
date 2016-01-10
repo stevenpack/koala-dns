@@ -1,6 +1,14 @@
 pub trait DirectAccessBuf {
     fn pos(&self) -> usize;
-    fn seek(&mut self, pos: usize) -> bool;
+    fn set_pos(&mut self, pos: usize);
+    fn len(&self) -> usize;
+    fn seek(&mut self, pos: usize) -> bool {
+        if pos > self.len() {
+            return false;
+        }
+        self.set_pos(pos);
+        return true;
+    }
     fn advance(&mut self, count: usize) -> bool {
         let new_pos = self.pos() + count;
         return self.seek(new_pos);
@@ -20,11 +28,6 @@ pub trait BufRead : DirectAccessBuf {
         }
         return Some(self.buf()[self.pos()]);
     }
-
-    fn len(&self) -> usize {
-        return self.buf().len();
-    }
-
 
     fn next_bytes(&mut self, bytes: usize) -> Vec<u8> {
         let mut slice = Vec::with_capacity(bytes);
@@ -80,10 +83,39 @@ pub trait BufRead : DirectAccessBuf {
 
 pub trait BufWrite : BufRead {
     fn buf(&mut self) -> &mut [u8];
-    fn write_u8(&mut self, byte: u8) {
-        // todo: check
-        // todo: return
+
+    fn write_u8(&mut self, byte: u8) -> bool {
+        if self.pos() >= self.len() {
+            return false;
+        }
         self.buf()[self.pos()] = byte;
         self.advance(1);
+        return true;
+    }
+
+    fn write_u16(&mut self, bytes: u16) -> bool {
+        if self.pos() + 1 >= self.len() {
+            return false;
+        }
+
+        let pos = self.pos();
+        // as takes last (rightmost) bits
+        self.buf()[pos] = (bytes >> 8) as u8;
+        self.buf()[pos + 1] = bytes as u8;
+        self.advance(2);
+        return true;
+    }
+
+    fn write_u32(&mut self, bytes: u32) -> bool {
+        if self.pos() + 3 >= self.len() {
+            return false;
+        }
+        let pos = self.pos();
+        self.buf()[pos] = (bytes >> 24) as u8;
+        self.buf()[pos + 1] = (bytes >> 16) as u8;
+        self.buf()[pos + 2] = (bytes >> 8) as u8;
+        self.buf()[pos + 3] = bytes as u8;
+        self.advance(4);
+        return true;
     }
 }
