@@ -92,10 +92,34 @@ impl DnsHeader {
         let mut bytes = buf.as_mut_slice();
         let mut packet = MutDnsPacket::new(bytes);
         packet.write_u16(self.id);
+        match packet.next_u16() {
+            Some(val) => {
+                let mut bit_cursor = BitCursor::new_with(val);
+                bit_cursor.write_bool(true); //qr
+                bit_cursor.write_u4(0); //opcode
+                bit_cursor.write_bool(false);
+                bit_cursor.write_bool(false);
+                bit_cursor.write_bool(true);
+                bit_cursor.write_bool(true);
+                bit_cursor.write(3, 0); //z
+                bit_cursor.write_u4(self.rcode); //rcode
+                bit_cursor.seek(0);
+                packet.seek(2);
+                packet.write_u16(bit_cursor.next_u16());
+            }
+            None => {}
+        }
+
         // todo: write stuff... need bitcursor to write bits...
-        info!("{:?}", packet);
+        // info!("{:?}", packet);
+
         let mut vec = Vec::from(packet.buf());
         vec.truncate(packet.len());
+        packet.seek(0);
+        for word in packet {
+            println!("word: {:016b} {:?}", word.0, word.1);
+        }
+
         return vec;
     }
 

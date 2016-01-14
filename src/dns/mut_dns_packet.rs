@@ -43,6 +43,22 @@ impl<'a> DirectAccessBuf for MutDnsPacket<'a> {
         return self.buf().len();
     }
 }
+// todo: copy and paste from DnsPacket
+///Iterate each 16bit word in the packet
+impl<'a> Iterator for MutDnsPacket<'a> {
+    ///2 octets of data and the position
+    type Item = (u16, usize);
+
+    ///
+    ///Returns two octets in the order they expressed in the spec. I.e. first byte shifted to the left
+    ///
+    fn next(&mut self) -> Option<(u16, usize)> {
+        match self.next_u16() {
+            Some(n) => return Some((n, self.pos)),
+            None => return None,
+        }
+    }
+}
 
 mod tests {
 

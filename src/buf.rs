@@ -81,6 +81,7 @@ pub trait BufRead : DirectAccessBuf {
     }
 }
 
+
 pub trait BufWrite : BufRead {
     fn buf(&mut self) -> &mut [u8];
 

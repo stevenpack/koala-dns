@@ -1,9 +1,9 @@
 ///
-///A LeftToRight BitCursor for reading bits
+///A LeftToRight BitCursor for reading and writing bits
 ///
 pub struct BitCursor {
     bits: u16,
-    pos: usize,
+    pos: u32,
 }
 
 impl BitCursor {
@@ -28,8 +28,43 @@ impl BitCursor {
         return self.read_and_advance(1) == 1;
     }
 
+
+
     pub fn next_u4(&mut self) -> u8 {
         return self.read_and_advance(4) as u8;
+    }
+
+    pub fn write_bool(&mut self, bit: bool) -> bool {
+        // println!("mask & bit as u16 {:016b}", self.mask(1) & (bit as u16));
+        // self.bits = self.bits | (self.mask(1) & (bit as u16));
+        // println!("self.bits {:016b}", self.bits);
+        let mut u16_val = bit as u16;
+        u16_val = u16_val.rotate_right(1 + self.pos as u32);
+        self.bits = self.bits | u16_val;
+        return self.advance(1);
+    }
+
+    pub fn write(&mut self, bit_cnt: u32, val: u16) -> bool {
+        return self.write_and_advance(bit_cnt, val);
+    }
+
+    pub fn write_u4(&mut self, val: u8) -> bool {
+        return self.write_and_advance(4, val as u16);
+    }
+
+    pub fn write_u8(&mut self, val: u8) -> bool {
+        return self.write_and_advance(8, val as u16);
+    }
+
+    pub fn write_u16(&mut self, val: u16) -> bool {
+        return self.write_and_advance(16, val);
+    }
+
+
+    fn write_and_advance(&mut self, bit_cnt: u32, val: u16) -> bool {
+        let rotated_val = val.rotate_right(bit_cnt + self.pos);
+        self.bits = self.bits | rotated_val;
+        return self.advance(bit_cnt);
     }
 
     #[allow(dead_code)]
@@ -43,26 +78,30 @@ impl BitCursor {
 
     ///Returns the next bits by shifting (rotating) left to push the bits to the far right
     ///ans using a mask to get the value.
-    fn read_and_advance(&mut self, bits: usize) -> u16 {
-        let shifted = self.shift(bits as u16);
+    fn read_and_advance(&mut self, bits: u32) -> u16 {
+        let shifted = self.shift(bits);
         let mask = self.mask(bits);
         let result = shifted & mask;
         trace!("{:016b} - self.bits", self.bits);
         trace!("{:016b} - rotated left", shifted);
         trace!("{:016b} - mask", mask);
         trace!("{:?} - mask", result);
-        self.advance(bits as usize);
+        self.advance(bits);
         return result;
     }
 
     // rotate the bits to line up with the mask
-    fn shift(&mut self, size: u16) -> u16 {
-        let count = (self.pos + size as usize) as u32;
+    fn shift(&mut self, size: u32) -> u16 {
+        let count = self.pos + size;
         return self.bits.rotate_left(count);
     }
 
-    fn advance(&mut self, count: usize) {
+    fn advance(&mut self, count: u32) -> bool {
+        if self.pos + count > 15 {
+            return false;
+        }
         self.pos += count;
+        return true;
     }
 
     //
@@ -70,15 +109,23 @@ impl BitCursor {
     // 0000 0000 0000 0001 to read 1 bit
     // 0000 0000 0000 1111 to read 4 bits
     //
-    pub fn mask(&self, bits: usize) -> u16 {
+    pub fn mask(&self, bits: u32) -> u16 {
         if bits == 0 {
             return 0;
         }
         let mut mask: usize = 0;
         for i in 0..bits {
-            mask = mask + 2usize.pow(i as u32); //pow requires u32
+            mask = mask + 2usize.pow(i); //pow requires u32
         }
         return mask as u16;
+    }
+
+    pub fn seek(&mut self, pos: u32) -> bool {
+        if pos > 16 {
+            return false;
+        }
+        self.pos = pos;
+        return true;
     }
 }
 
@@ -126,5 +173,25 @@ mod tests {
         assert_eq!(false, cursor.next_bool()); //ra
         assert_eq!(0, cursor.next_u4());       //z
         assert_eq!(0, cursor.next_u4());       //rcode
+    }
+
+    #[test]
+    fn write() {
+        let mut cursor = BitCursor::new();
+        println!("Start {:016b}", cursor.next_u16());
+        println!("true as u16 {:016b}", true as u16);
+        println!("mask 1 bit {:016b}", cursor.mask(1));
+        cursor.write_bool(true);
+        cursor.write_bool(true);
+        cursor.write_u4(1);
+        cursor.write_u8(255);
+        cursor.write_u16(1);
+        cursor.seek(0);
+        println!("next_u16 {:016b}", cursor.next_u16());
+        // cursor.write_u4(1);
+
+
+        // cursor.write_u4();
+        // assert_eq!(cursor.next_u16(), 34816); //1000 1000 0000 0000
     }
 }
