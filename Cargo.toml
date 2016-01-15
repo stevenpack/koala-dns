@@ -3,9 +3,9 @@ name = "koala-dns"
 version = "0.1.0"
 authors = ["stevenpack <steven_john_pack@yahoo.com.au>"]
 
-[lib]
-name = "koala_dns"
-path = "src/lib.rs"
+# [lib]
+# name = "koala_dns"
+# path = "src/lib.rs"
 
 [[bin]]
 name = "koala_dns_server"

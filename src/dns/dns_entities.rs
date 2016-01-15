@@ -35,7 +35,6 @@ pub struct DnsHeader {
     pub arcount: u16,
 }
 
-
 #[derive(Debug)]
 pub struct DnsAnswer {
     pub name: String,
@@ -109,17 +108,15 @@ impl DnsHeader {
             }
             None => {}
         }
-
-        // todo: write stuff... need bitcursor to write bits...
-        // info!("{:?}", packet);
-
         let mut vec = Vec::from(packet.buf());
-        vec.truncate(packet.len());
-        packet.seek(0);
-        for word in packet {
-            println!("word: {:016b} {:?}", word.0, word.1);
-        }
-
+        // todo: too many bytes... as 96... truncate to 12 with all the counts
+        // let pos = packet.pos();
+        // packet.seek(0);
+        // for word in packet {
+        //     println!("word: {:016b} {:?}", word.0, word.1);
+        // }
+        // info!("Truncating to {}", pos);
+        vec.truncate(12);
         return vec;
     }
 

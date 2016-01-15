@@ -22,7 +22,6 @@ pub trait BufRead : DirectAccessBuf {
     fn buf(&self) -> &[u8];
 
     fn peek_u8(&self) -> Option<u8> {
-        let len = self.buf().len();
         if self.pos() >= self.len() {
             return None;
         }

@@ -7,7 +7,7 @@ extern crate mio;
 extern crate log;
 extern crate env_logger;
 extern crate test;
-extern crate koala_dns;
+//extern crate koala_dns;
 
 mod command_line;
 mod server;

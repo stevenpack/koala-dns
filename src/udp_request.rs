@@ -26,7 +26,7 @@ pub struct UdpRequest {
     timeout_handle: Option<Timeout>,
     client_addr: SocketAddr,
     upstream_addr: SocketAddr,
-    pub query_buf: Vec<u8>,
+    query_buf: Vec<u8>,
     response_buf: Vec<u8>,
 }
 
@@ -189,8 +189,8 @@ impl UdpRequest {
         let req = DnsMessage::parse(&self.query_buf);
         let reply = DnsHeader::new_error(req.header, 2);
         debug!("{:#?}", reply);
-        let mut vec = reply.to_bytes();
-        let mut bytes = vec.as_slice();
+        let vec = reply.to_bytes();
+        let bytes = vec.as_slice();
         self.response_buf.push_all(bytes);
     }
 }

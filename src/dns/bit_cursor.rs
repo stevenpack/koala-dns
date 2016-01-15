@@ -52,10 +52,12 @@ impl BitCursor {
         return self.write_and_advance(4, val as u16);
     }
 
+    #[allow(dead_code)]
     pub fn write_u8(&mut self, val: u8) -> bool {
         return self.write_and_advance(8, val as u16);
     }
 
+    #[allow(dead_code)]
     pub fn write_u16(&mut self, val: u16) -> bool {
         return self.write_and_advance(16, val);
     }

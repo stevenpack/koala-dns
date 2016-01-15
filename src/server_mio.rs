@@ -10,7 +10,6 @@ use std::thread;
 use std::thread::JoinHandle;
 use mio::Sender;
 use udp_request::{UdpRequest, RequestState};
-use dns::dns_entities::DnsMessage;
 
 pub struct MioServer {
     udp_server: UdpSocket,
@@ -174,11 +173,11 @@ impl MioServer {
                           .and_then(|(addr, buf)| self.add_transaction(addr, buf.as_slice()));
 
         if new_tok.is_some() {
-            {
-                // todo: improve
-                debug!("{:#?}",
-                       DnsMessage::parse(&self.requests.get(new_tok.unwrap()).unwrap().query_buf));
-            }
+            // {
+            //     // todo: improve
+            //     debug!("{:#?}",
+            //            DnsMessage::parse(&self.requests.get(new_tok.unwrap()).unwrap().query_buf));
+            // }
             debug!("There are {:?} in-flight requests", self.requests.count());
             self.ready(event_loop, new_tok.unwrap(), events);
         } else {
