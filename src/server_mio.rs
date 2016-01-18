@@ -1,7 +1,6 @@
 extern crate mio;
 extern crate bytes;
 
-
 use mio::{Evented, Token, EventLoop, EventSet, PollOpt, Handler, Timeout};
 use mio::udp::UdpSocket;
 use mio::util::Slab;
@@ -9,7 +8,7 @@ use std::net::SocketAddr;
 use std::thread;
 use std::thread::JoinHandle;
 use mio::Sender;
-use udp_request::{UdpRequest, RequestState};
+use udp_request::UdpRequest;
 
 pub struct MioServer {
     udp_server: UdpSocket,
@@ -28,25 +27,22 @@ impl Handler for MioServer {
     fn ready(&mut self, event_loop: &mut EventLoop<Self>, token: Token, events: EventSet) {
         match token {
             UDP_SERVER_TOKEN => self.server_ready(event_loop, events),
-            client_token => self.upstream_ready(event_loop, events, client_token),
+            request_token => self.request_ready(event_loop, events, request_token),
         }
     }
 
     #[allow(unused_variables)]
-    fn timeout(&mut self, event_loop: &mut EventLoop<Self>, timeout: Self::Timeout) {
-        info!("Got timeout: {:?}", timeout);
-        match self.requests.get_mut(timeout) {
-            Some(mut request) => {
-                request.on_timeout();
-            }
-            None => warn!("Timed out request wasn't present. {:?}", timeout),
+    fn timeout(&mut self, event_loop: &mut EventLoop<Self>, token: Self::Timeout) {
+        info!("Got timeout: {:?}", token);
+        match self.requests.get_mut(token) {
+            Some(mut request) => request.on_timeout(token),
+            None => warn!("Timed out request wasn't present. {:?}", token),
         }
-        self.queue_response(timeout);
-        self.send_reply();
-
+        self.request_ready(event_loop, EventSet::none(), token);
     }
 
     fn notify(&mut self, event_loop: &mut EventLoop<Self>, msg: String) {
+        // todo: finish
         info!("Got a message {}", msg);
         if msg == format!("{}", "Stop!") {
             event_loop.shutdown()
@@ -68,31 +64,23 @@ impl MioServer {
         // todo: check events.remove() and add() as way to go writable...
     }
 
-    fn upstream_ready(&mut self,
-                      event_loop: &mut EventLoop<MioServer>,
-                      events: EventSet,
-                      token: Token) {
+    fn request_ready(&mut self,
+                     event_loop: &mut EventLoop<MioServer>,
+                     events: EventSet,
+                     token: Token) {
 
-        self.requests[token].socket_ready(event_loop, token, events);
-
-        match self.requests[token].state {
-            RequestState::Error => {
-                // info!("Error state. Removing request. {:?}", token);
-                // let mut request = self.requests.get_mut(token);
-                // hack:: match and rethink handling error
-                info!("Clearing timeout: {:?}", token);
-                // request.unwrap().clear_timeout(event_loop, token);
-                // request.unwrap().hack_error();
-                self.queue_response(token);
-                self.reregister_server(event_loop, EventSet::readable() | EventSet::writable());
+        let mut queue_response = false;
+        match self.requests.get_mut(token) {
+            Some(mut request) => {
+                request.ready(event_loop, token, events);
+                queue_response = request.has_reply();
             }
-            RequestState::ResponseReceived => {
-                self.queue_response(token);
-                self.reregister_server(event_loop, EventSet::readable() | EventSet::writable());
-            }
-            _ => {}
+            None => warn!("{:?} not in requests", token),
         }
-
+        if queue_response {
+            self.queue_response(token);
+            self.reregister_server(event_loop, EventSet::readable() | EventSet::writable());
+        }
     }
 
     fn queue_response(&mut self, token: Token) {
@@ -156,8 +144,7 @@ impl MioServer {
     fn add_transaction(&mut self, addr: SocketAddr, bytes: &[u8]) -> Option<Token> {
         let upstream_server = self.upstream_server;
         let timeout_ms = self.timeout;
-        // todo: lose the vecs
-        let mut buf = Vec::<u8>::with_capacity(512);
+        let mut buf = Vec::<u8>::with_capacity(bytes.len());
         buf.push_all(bytes);
         match self.requests.insert(UdpRequest::new(addr, upstream_server, buf, timeout_ms)) {
             Ok(new_tok) => return Some(new_tok),
@@ -173,11 +160,6 @@ impl MioServer {
                           .and_then(|(addr, buf)| self.add_transaction(addr, buf.as_slice()));
 
         if new_tok.is_some() {
-            // {
-            //     // todo: improve
-            //     debug!("{:#?}",
-            //            DnsMessage::parse(&self.requests.get(new_tok.unwrap()).unwrap().query_buf));
-            // }
             debug!("There are {:?} in-flight requests", self.requests.count());
             self.ready(event_loop, new_tok.unwrap(), events);
         } else {

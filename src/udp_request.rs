@@ -16,18 +16,18 @@ pub enum RequestState {
 }
 
 //
-// Encapsulates the components of a Resolution request and response over Udp.
+// Encapsulates the components of a dns request and response over Udp.
 //
 // #[derive(Debug)]
 pub struct UdpRequest {
-    pub state: RequestState,
+    state: RequestState,
     upstream_socket: UdpSocket,
     timeout_ms: u64,
     timeout_handle: Option<Timeout>,
     client_addr: SocketAddr,
     upstream_addr: SocketAddr,
     query_buf: Vec<u8>,
-    response_buf: Vec<u8>,
+    response_buf: Option<Vec<u8>>,
 }
 
 
@@ -41,13 +41,12 @@ impl UdpRequest {
         return UdpRequest {
             state: RequestState::New,
             client_addr: client_addr,
-            // upstream_token: upstream_token,
             // todo: handle this by Option<> and error! the request but do not panic, or accepting in ctor
             upstream_socket: UdpSocket::v4()
                                  .unwrap_or_else(|e| panic!("Failed to create UDP socket {:?}", e)),
             upstream_addr: upstream_addr,
             query_buf: query_buf,
-            response_buf: Vec::<u8>::with_capacity(4096),
+            response_buf: None,
             timeout_ms: timeout,
             timeout_handle: None,
         };
@@ -76,8 +75,8 @@ impl UdpRequest {
         // todo fail the reqest
     }
 
-    pub fn on_timeout(&mut self) {
-        self.hack_error();
+    pub fn on_timeout(&mut self, token: Token) {
+        self.error_with(format!("{:?} timed out", token));
     }
 
     fn set_timeout<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token)
@@ -92,11 +91,17 @@ impl UdpRequest {
     pub fn clear_timeout<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token)
         where T: Handler<Timeout = Token>
     {
-        if event_loop.clear_timeout(self.timeout_handle.unwrap()) {
-            debug!("Timeout cleared for {:?}", token);
-        } else {
-            warn!("Could not clear timeout for {:?}", token);
+        match self.timeout_handle {
+            Some(handle) => {
+                if event_loop.clear_timeout(handle) {
+                    debug!("Timeout cleared for {:?}", token);
+                } else {
+                    warn!("Could not clear timeout for {:?}", token);
+                }
+            }
+            None => warn!("Timeout handle not present"),
         }
+
     }
 
     fn accept<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
@@ -114,83 +119,79 @@ impl UdpRequest {
         match self.upstream_socket.send_to(&mut self.query_buf.as_slice(), &self.upstream_addr) {
             Ok(Some(_)) => {
                 self.set_state(RequestState::Forwarded);
+                self.register_upstream(event_loop, EventSet::readable(), token);
+                self.set_timeout(event_loop, token);
             }
-            Ok(None) => {
-                debug!("Failed to send. Expect writable event to fire again still in the same \
-                        state. {:?}",
-                       token)
-            }
+            Ok(None) => debug!("0 bytes sent. Staying in same state {:?}", token),
             Err(e) => {
-                error!("Failed to write to upstream_socket. {:?}. {:?}", token, e);
-                self.hack_error();
-                self.set_state(RequestState::Error);
+                self.error_with(format!("Failed to write to upstream_socket. {:?} {:?}", e, token))
             }
         }
-        self.register_upstream(event_loop, EventSet::readable(), token);
-        self.set_timeout(event_loop, token);
     }
 
     fn receive<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
         where T: Handler<Timeout = Token>
     {
         assert!(events.is_readable());
-        // todo: higher perf buffer?
-        let mut buf: [u8; 512] = [0; 512];
+        let mut buf = [0; 4096];
         match self.upstream_socket.recv_from(&mut buf) {
             Ok(Some((count, addr))) => {
-                debug!("Received {} bytes from {:?}", buf.len(), addr);
-                // todo: lose the vecs
-                self.response_buf.push_all(&buf);
-                self.response_buf.truncate(count);
-                // self.response_buf = buf;
-                self.set_state(RequestState::ResponseReceived);
+                debug!("Received {} bytes from {:?}", count, addr);
+                trace!("{:#?}", DnsMessage::parse(&buf));
+                self.buffer_response(&buf, count);
                 self.clear_timeout(event_loop, token);
-                debug!("{:#?}", DnsMessage::parse(&buf));
+                self.set_state(RequestState::ResponseReceived);
             }
             Ok(None) => debug!("No data received on upstream_socket. {:?}", token),
             Err(e) => {
-                println!("Receive failed on {:?}. {:?}", token, e);
-                self.set_state(RequestState::Error);
+                self.error_with(format!("Receive failed on {:?}. {:?}", token, e));
+                self.clear_timeout(event_loop, token);
             }
         }
     }
-    pub fn socket_ready<T>(&mut self,
-                           event_loop: &mut EventLoop<T>,
-                           token: Token,
-                           events: EventSet)
+
+    fn buffer_response(&mut self, buf: &[u8], count: usize) {
+        let mut response = Vec::with_capacity(count);
+        response.push_all(&buf);
+        response.truncate(count);
+        self.response_buf = Some(response);
+    }
+
+    pub fn ready<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
         where T: Handler<Timeout = Token>
     {
-        debug!("Socket Event. State: {:?} {:?} EventSet: {:?}",
-               self.state,
-               token,
-               events);
+        debug!("State {:?} {:?} {:?}", self.state, token, events);
         match self.state {
             RequestState::New => self.accept(event_loop, token, events),
             RequestState::Accepted => self.forward(event_loop, token, events),
             RequestState::Forwarded => self.receive(event_loop, token, events),
-            RequestState::ResponseReceived | RequestState::Error => {
-                error!("Unexpected socket event for {:?}. State {:?}",
-                       token,
-                       self.state)
-            }
+            _ => debug!("Nothing to do for this state {:?}", self.state),
         }
     }
 
     pub fn send(&self, socket: &UdpSocket) {
-        info!("{:?} bytes to send", self.response_buf.len());
-        match socket.send_to(&mut &self.response_buf.as_slice(), &self.client_addr) {
-            Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, self.client_addr),
-            Err(e) => error!("Failed to send. {:?} Error was {:?}", self.client_addr, e),
+        match self.response_buf {
+            Some(ref response) => {
+                info!("{:?} bytes to send", response.len());
+                match socket.send_to(&mut &response.as_slice(), &self.client_addr) {
+                    Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, self.client_addr),
+                    Err(e) => error!("Failed to send. {:?} Error was {:?}", self.client_addr, e),
+                }
+            }
+            None => error!("Trying to send before a response has been buffered."),
         }
     }
 
-    pub fn hack_error(&mut self) {
-        info!("Sending back an error");
+    pub fn error_with(&mut self, err_msg: String) {
+        self.set_state(RequestState::Error);
+        info!("{}", err_msg);
         let req = DnsMessage::parse(&self.query_buf);
         let reply = DnsHeader::new_error(req.header, 2);
-        debug!("{:#?}", reply);
         let vec = reply.to_bytes();
-        let bytes = vec.as_slice();
-        self.response_buf.push_all(bytes);
+        self.response_buf = Some(vec);
+    }
+
+    pub fn has_reply(&self) -> bool {
+        return self.response_buf.is_some();
     }
 }

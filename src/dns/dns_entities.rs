@@ -109,14 +109,7 @@ impl DnsHeader {
             None => {}
         }
         let mut vec = Vec::from(packet.buf());
-        // todo: too many bytes... as 96... truncate to 12 with all the counts
-        // let pos = packet.pos();
-        // packet.seek(0);
-        // for word in packet {
-        //     println!("word: {:016b} {:?}", word.0, word.1);
-        // }
-        // info!("Truncating to {}", pos);
-        vec.truncate(12);
+        vec.truncate(12); //12 bytes in the header
         return vec;
     }
 
