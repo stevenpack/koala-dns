@@ -1,5 +1,7 @@
+// These can work if cargo.toml is modified to build lib and bin. Had problems with lints when doing
 #![feature(convert)]
 extern crate koala_dns;
+
 use koala_dns::server::*;
 use std::net::SocketAddr;
 use std::str::FromStr;
@@ -30,7 +32,7 @@ fn timeout() {
     let output_str = start(&mut server);
     println!("{:?}", output_str);
 
-    assert!(output_str.contains(";; connection timed out"));
+    assert!(output_str.contains("status: SERVFAIL"));
 
     server.stop();
 }
@@ -56,8 +58,8 @@ fn start(server: &mut Server) -> String {
 }
 
 fn build_with(port: u32, server: String, timeout_ms: u64) -> Server {
-    let mut server = Server::new(port,
-                                 SocketAddr::from_str(server.as_str()).unwrap(),
-                                 timeout_ms);
+    let server = Server::new(port,
+                             SocketAddr::from_str(server.as_str()).unwrap(),
+                             timeout_ms);
     return server;
 }

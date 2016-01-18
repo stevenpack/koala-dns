@@ -1,8 +1,12 @@
+// to remove warnings when building both the bin and lib
+#![allow(dead_code)]
+
 use getopts::Options;
 use std::env;
 use std::process;
 use std::net::SocketAddr;
 use std::str::FromStr;
+
 
 pub struct Config {
     pub port: u32,

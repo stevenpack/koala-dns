@@ -54,16 +54,26 @@ impl<'a> Iterator for MutDnsPacket<'a> {
     ///
     fn next(&mut self) -> Option<(u16, usize)> {
         return self.next_u16().and_then(|n| return Some((n, self.pos)));
-        // match self.next_u16() {
-        //     Some(n) => return Some((n, self.pos)),
-        //     None => return None,
-        // }
     }
 }
 
+#[cfg(test)]
 mod tests {
-    #[test]
 
+    use super::MutDnsPacket;
+    use buf::*;
+
+    fn test_buf() -> Vec<u8> {
+        //
+        // 00001000 01110001 00000001 00000000 00000000 00000001 00000000 00000000 00000000
+        // 00000000 00000000 00000000 00000101 01111001 01100001 01101000 01101111 01101111
+        // 00000011 01100011 01101111 01101101 00000000 00000000 00000001 00000000 00000001
+        //
+        return vec![8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111,
+                    109, 0, 0, 1, 0, 1];
+    }
+
+    #[test]
     fn write_u8() {
         let mut vec = test_buf();
         let mut buf = vec.as_mut_slice();
