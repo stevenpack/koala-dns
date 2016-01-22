@@ -1,7 +1,7 @@
 extern crate mio;
 extern crate bytes;
 
-use mio::{Evented, Token, EventLoop, EventSet, PollOpt, Handler, Timeout};
+use mio::{Evented, Token, EventLoop, EventSet, PollOpt, Handler};
 use mio::udp::UdpSocket;
 use mio::util::Slab;
 use std::net::SocketAddr;
@@ -145,7 +145,7 @@ impl MioServer {
         let upstream_server = self.upstream_server;
         let timeout_ms = self.timeout;
         let mut buf = Vec::<u8>::with_capacity(bytes.len());
-        buf.push_all(bytes);
+        buf.extend_from_slice(bytes);
         match self.requests.insert(UdpRequest::new(addr, upstream_server, buf, timeout_ms)) {
             Ok(new_tok) => return Some(new_tok),
             Err(_) => {

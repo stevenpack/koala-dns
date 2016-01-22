@@ -1,6 +1,4 @@
 //to support both a lib and bin build
-#![feature(convert)]
-#![feature(vec_push_all)]
 #![feature(test)]
 extern crate getopts;
 extern crate mio;

@@ -152,7 +152,7 @@ impl UdpRequest {
 
     fn buffer_response(&mut self, buf: &[u8], count: usize) {
         let mut response = Vec::with_capacity(count);
-        response.push_all(&buf);
+        response.extend_from_slice(&buf);
         response.truncate(count);
         self.response_buf = Some(response);
     }
