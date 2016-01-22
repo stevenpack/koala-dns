@@ -15,6 +15,10 @@ pub enum RequestState {
     Error,
 }
 
+// Evented()
+// send_to()
+// recv_from()
+
 //
 // Encapsulates the components of a dns request and response over Udp.
 //
