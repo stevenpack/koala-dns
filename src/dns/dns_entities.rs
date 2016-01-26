@@ -182,6 +182,7 @@ impl DnsHeader {
 impl DnsMessage {
     pub fn parse(buf: &[u8]) -> DnsMessage {
         let mut packet = DnsPacket::new(buf);
+        debug!("{:?}", packet);
         let header = DnsHeader::parse(&mut packet);
         match header.qr {
             QR_QUERY => {

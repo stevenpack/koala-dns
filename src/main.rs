@@ -13,6 +13,7 @@ mod server_mio;
 mod udp_request;
 mod dns;
 mod buf;
+mod socket;
 
 use server::ServerOps;
 

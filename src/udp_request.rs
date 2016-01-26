@@ -9,7 +9,9 @@ use dns::dns_entities::DnsHeader;
 #[derive(PartialEq)]
 pub enum RequestState {
     New,
+    Connected,
     Accepted,
+    RequestReceived,
     Forwarded,
     ResponseReceived,
     Error,
@@ -25,6 +27,7 @@ pub enum RequestState {
 // #[derive(Debug)]
 pub struct UdpRequest {
     state: RequestState,
+    pub token: Token,
     upstream_socket: UdpSocket,
     timeout_ms: u64,
     timeout_handle: Option<Timeout>,
@@ -36,7 +39,8 @@ pub struct UdpRequest {
 
 
 impl UdpRequest {
-    pub fn new(client_addr: SocketAddr,
+    pub fn new(token: Token,
+               client_addr: SocketAddr,
                upstream_addr: SocketAddr,
                query_buf: Vec<u8>,
                timeout: u64)
@@ -44,6 +48,7 @@ impl UdpRequest {
         // debug!("New UDP transaction: {:?}", upstream_token);
         return UdpRequest {
             state: RequestState::New,
+            token: token,
             client_addr: client_addr,
             // todo: handle this by Option<> and error! the request but do not panic, or accepting in ctor
             upstream_socket: UdpSocket::v4()
@@ -105,7 +110,6 @@ impl UdpRequest {
             }
             None => warn!("Timeout handle not present"),
         }
-
     }
 
     fn accept<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
@@ -167,6 +171,7 @@ impl UdpRequest {
         debug!("State {:?} {:?} {:?}", self.state, token, events);
         match self.state {
             RequestState::New => self.accept(event_loop, token, events),
+            RequestState::Connected => {}//..udp do nothing, tcp accept and re-register socket...
             RequestState::Accepted => self.forward(event_loop, token, events),
             RequestState::Forwarded => self.receive(event_loop, token, events),
             _ => debug!("Nothing to do for this state {:?}", self.state),
