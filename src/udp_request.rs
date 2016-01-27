@@ -9,9 +9,9 @@ use dns::dns_entities::DnsHeader;
 #[derive(PartialEq)]
 pub enum RequestState {
     New,
-    Connected,
+    // Connected,
     Accepted,
-    RequestReceived,
+    // RequestReceived,
     Forwarded,
     ResponseReceived,
     Error,
@@ -28,6 +28,7 @@ pub enum RequestState {
 pub struct UdpRequest {
     state: RequestState,
     pub token: Token,
+    pub server_token: Token,
     upstream_socket: UdpSocket,
     timeout_ms: u64,
     timeout_handle: Option<Timeout>,
@@ -40,6 +41,7 @@ pub struct UdpRequest {
 
 impl UdpRequest {
     pub fn new(token: Token,
+               server_token: Token,
                client_addr: SocketAddr,
                upstream_addr: SocketAddr,
                query_buf: Vec<u8>,
@@ -49,6 +51,7 @@ impl UdpRequest {
         return UdpRequest {
             state: RequestState::New,
             token: token,
+            server_token: server_token,
             client_addr: client_addr,
             // todo: handle this by Option<> and error! the request but do not panic, or accepting in ctor
             upstream_socket: UdpSocket::v4()
@@ -171,7 +174,6 @@ impl UdpRequest {
         debug!("State {:?} {:?} {:?}", self.state, token, events);
         match self.state {
             RequestState::New => self.accept(event_loop, token, events),
-            RequestState::Connected => {}//..udp do nothing, tcp accept and re-register socket...
             RequestState::Accepted => self.forward(event_loop, token, events),
             RequestState::Forwarded => self.receive(event_loop, token, events),
             _ => debug!("Nothing to do for this state {:?}", self.state),

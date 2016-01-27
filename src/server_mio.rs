@@ -8,7 +8,6 @@ use mio::util::Slab;
 use std::net::SocketAddr;
 use std::thread;
 use std::thread::JoinHandle;
-use std::io::{Read, Write};
 use mio::{Sender, TryRead};
 use udp_request::UdpRequest;
 use dns::dns_entities::*;
@@ -19,14 +18,13 @@ pub struct MioServer {
     tcp_server: TcpListener,
     upstream_server: SocketAddr,
     timeout: u64,
-    pending: HashMap<Token, TcpStream>, // tcp
+    pending: HashMap<Token, TcpStream>,
     requests: Slab<UdpRequest>,
     responses: Vec<UdpRequest>,
 }
 
 const TCP_SERVER_TOKEN: Token = Token(1);
 const UDP_SERVER_TOKEN: Token = Token(2);
-
 impl Handler for MioServer {
     type Timeout = Token;
     type Message = String; //todo: make enum
@@ -36,20 +34,8 @@ impl Handler for MioServer {
         match token {
             TCP_SERVER_TOKEN => self.server_ready(event_loop, events, token),
             UDP_SERVER_TOKEN => self.server_ready(event_loop, events, token),
-            request_token if self.pending.contains_key(&token) => {
-                info!("TCP pending conn");
-                match self.pending.get_mut(&token) {
-                    Some(mut stream) => {
-                        Self::receive_tcp(&mut stream, token, event_loop);
-                    }
-                    _ => {}
-                }
-
-            }
-            request_token => self.request_ready(event_loop, events, request_token),
-            // pending_tcp_request_token
-            // request_token if pending_tcp_conn => ...accept tcp,
-            // request_token if not => self.request_ready...
+            pending if self.pending.contains_key(&token) => self.accept_pending(pending),
+            request => self.request_ready(event_loop, events, request),
         }
     }
 
@@ -73,51 +59,50 @@ impl Handler for MioServer {
 }
 
 impl MioServer {
-    fn server_ready(&mut self,
-                    event_loop: &mut EventLoop<MioServer>,
-                    events: EventSet,
-                    token: Token) {
-        if events.is_readable() {
-            match token {
-                TCP_SERVER_TOKEN => {
-                    self.accept_tcp(event_loop, events);
-                    self.reregister_tcp_server(event_loop, EventSet::readable());
-                }
-                UDP_SERVER_TOKEN => {
-                    self.accept_udp(event_loop, events);
-                    self.reregister_udp_server(event_loop, EventSet::readable());
-                }
-                _ => error!("Unexpected server token: {:?}", token),
-            }
+    fn server_ready(&mut self, event_loop: &mut EventLoop<Self>, events: EventSet, token: Token) {
 
-        }
         if events.is_writable() {
             self.send_reply();
+            return; //TODO: consider: keeps writing out requests before accepting new responses.
         }
-        // We are always listening for new requests. The server socket will be regregistered
-        // as writable if there are responses to write
 
-
-        // todo: check events.remove() and add() as way to go writable...
+        if events.is_readable() {
+            match token {
+                TCP_SERVER_TOKEN => self.accept_tcp(event_loop),
+                UDP_SERVER_TOKEN => self.accept_udp(event_loop, events),
+                _ => {
+                    error!("Unexpected server token: {:?}", token);
+                    return;
+                }
+            }
+        }
+        self.reregister_server(event_loop, EventSet::readable(), token);
     }
 
-    fn request_ready(&mut self,
-                     event_loop: &mut EventLoop<MioServer>,
-                     events: EventSet,
-                     token: Token) {
+    fn accept_pending(&mut self, token: Token) {
+        match self.pending.get_mut(&token) {
+            Some(mut stream) => Self::receive_tcp(&mut stream),
+            None => error!("{:?} was not pending", token),
+        }
+    }
+
+    fn request_ready(&mut self, event_loop: &mut EventLoop<Self>, events: EventSet, token: Token) {
 
         let mut queue_response = false;
+        let mut server_token = UDP_SERVER_TOKEN;
         match self.requests.get_mut(token) {
             Some(mut request) => {
                 request.ready(event_loop, token, events);
                 queue_response = request.has_reply();
+                server_token = request.server_token;
             }
             None => warn!("{:?} not in requests", token),
         }
         if queue_response {
             self.queue_response(token);
-            self.reregister_udp_server(event_loop, EventSet::readable() | EventSet::writable());
-            self.reregister_tcp_server(event_loop, EventSet::readable() | EventSet::writable());
+            self.reregister_server(event_loop,
+                                   EventSet::readable() | EventSet::writable(),
+                                   server_token);
         }
     }
 
@@ -130,23 +115,6 @@ impl MioServer {
             None => error!("Failed to remove request and queue response. {:?}", token),
         }
     }
-
-    fn reregister_udp_server(&self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
-        debug!("Re-registered: {:?} with {:?}", UDP_SERVER_TOKEN, events);
-        let _ = event_loop.reregister(&self.udp_server,
-                                      UDP_SERVER_TOKEN,
-                                      events,
-                                      PollOpt::edge() | PollOpt::oneshot());
-    }
-
-    fn reregister_tcp_server(&self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
-        debug!("Re-registered: {:?} with {:?}", TCP_SERVER_TOKEN, events);
-        let _ = event_loop.reregister(&self.tcp_server,
-                                      TCP_SERVER_TOKEN,
-                                      events,
-                                      PollOpt::edge() | PollOpt::oneshot());
-    }
-
 
     fn remove_request(&mut self, token: Token) -> Option<UdpRequest> {
         match self.requests.remove(token) {
@@ -167,40 +135,31 @@ impl MioServer {
         }
     }
 
-    fn add_transaction(&mut self, addr: SocketAddr, bytes: &[u8]) -> Option<Token> {
+    fn add_transaction(&mut self,
+                       addr: SocketAddr,
+                       bytes: &[u8],
+                       server_token: Token)
+                       -> Option<Token> {
         let upstream_server = self.upstream_server;
         let timeout_ms = self.timeout;
         let mut buf = Vec::<u8>::with_capacity(bytes.len());
         buf.extend_from_slice(bytes);
         return self.requests
-                   .insert_with(|tok| UdpRequest::new(tok, addr, upstream_server, buf, timeout_ms));
+                   .insert_with(|tok| {
+                       UdpRequest::new(tok, server_token, addr, upstream_server, buf, timeout_ms)
+                   });
     }
 
-    fn accept_tcp(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
+    fn accept_tcp(&mut self, event_loop: &mut EventLoop<Self>) {
         match self.tcp_server.accept() {
             Ok(Some((stream, addr))) => {
-                // match TcpStream::connect(&addr) {
-                //     Ok(mut connected_stream) => {
-
-                match self.add_transaction(addr, Vec::<u8>::new().as_slice()) {
+                match self.add_transaction(addr, Vec::<u8>::new().as_slice(), TCP_SERVER_TOKEN) {
                     Some(tok) => {
-                        let reg = event_loop.register(&stream,
-                                                      tok,
-                                                      EventSet::readable(),
-                                                      PollOpt::edge() | PollOpt::oneshot());
-                        info!("Registered tcp socket for read {:?} {:?} {:?}",
-                              stream,
-                              tok,
-                              reg);
-
+                        Self::register(event_loop, &stream, EventSet::readable(), tok, true);
                         self.pending.insert(tok, stream);
-
                     }
                     None => error!("add_transaction failed"),
                 }
-                //     }
-                //     Err(err) => error!("{}", err),
-                // }
             }
             Ok(None) => debug!("Socket would block waiting..."),
             Err(err) => error!("Failed to accept tcp connection {}", err),
@@ -209,7 +168,9 @@ impl MioServer {
 
     fn accept_udp(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
         let new_tok = self.receive_udp(&self.udp_server)
-                          .and_then(|(addr, buf)| self.add_transaction(addr, buf.as_slice()));
+                          .and_then(|(addr, buf)| {
+                              self.add_transaction(addr, buf.as_slice(), UDP_SERVER_TOKEN)
+                          });
 
         if new_tok.is_some() {
             debug!("There are {:?} in-flight requests", self.requests.count());
@@ -219,20 +180,12 @@ impl MioServer {
         }
     }
 
-    fn receive_tcp(stream: &mut TcpStream, token: Token, event_loop: &mut EventLoop<MioServer>) {
+    fn receive_tcp(stream: &mut TcpStream) {
         info!("Have a TcpStream to receive from to {:?}", stream);
 
         let mut buf = Vec::<u8>::with_capacity(512);
         match stream.try_read_buf(&mut buf) {
-            Ok(Some(0)) => {
-                info!("Read 0 bytes");
-                // let reg = event_loop.register(stream,
-                //                               token,
-                //                               EventSet::readable(),
-                //                               PollOpt::edge() | PollOpt::oneshot());
-
-
-            }
+            Ok(Some(0)) => info!("Read 0 bytes"),
             Ok(Some(n)) => {
                 info!("Read {} bytesxx", n);
                 buf.truncate(n);
@@ -247,18 +200,6 @@ impl MioServer {
         let b3 = b2.split_off(2);
         let msg = DnsMessage::parse(&b3);
         debug!("{:?}", msg);
-
-        // let mut buf = Vec::with_capacity(512);
-        // // I think we're meant ot register the TcpStream or UdpSocket as evented... there
-        // // might be lots of reads.
-        // match stream.read_to_end(&mut buf) {
-        //     Ok(cnt) => {
-        //         buf.truncate(cnt);
-        //         let msg = DnsMessage::parse(&buf);
-        //         info!("Got: {:?}", msg);
-        //     }
-        //     Err(err) => error!("Failed to read {}", err),
-        // }
     }
 
     fn receive_udp(&self, socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
@@ -300,17 +241,46 @@ impl MioServer {
         return server;
     }
 
-    fn register_server(event_loop: &mut EventLoop<MioServer>,
-                       server_socket: &Evented,
-                       token: Token) {
-        let reg = event_loop.register(server_socket,
-                                      token,
-                                      EventSet::readable(),
-                                      PollOpt::edge() | PollOpt::oneshot());
+    // fn register_socket(event_loop: &mut EventLoop<MioServer>, socket: &Evented, token: Token) {
+    //     Self::register
+    // }
 
-        info!("server registration {:?}", reg);
+    fn register_server(&self, event_loop: &mut EventLoop<MioServer>, token: Token) {
+        let read = EventSet::readable();
+        match token {
+            UDP_SERVER_TOKEN => Self::register(event_loop, &self.udp_server, read, token, false),
+            TCP_SERVER_TOKEN => Self::register(event_loop, &self.tcp_server, read, token, false),
+            _ => error!("{:?} is not a server socket token", token),
+        }
     }
 
+    fn reregister_server(&self,
+                         event_loop: &mut EventLoop<MioServer>,
+                         events: EventSet,
+                         token: Token) {
+        match token {
+            UDP_SERVER_TOKEN => Self::register(event_loop, &self.udp_server, events, token, true),
+            TCP_SERVER_TOKEN => Self::register(event_loop, &self.tcp_server, events, token, true),
+            _ => error!("{:?} is not a server socket token", token),
+        }
+    }
+
+
+    fn register(event_loop: &mut EventLoop<MioServer>,
+                socket: &Evented,
+                events: EventSet,
+                token: Token,
+                reregister: bool) {
+
+        let poll_opt = PollOpt::edge() | PollOpt::oneshot();
+        if reregister {
+            let reg = event_loop.reregister(socket, token, events, poll_opt);
+            debug!("Re-registered {:?} {:?} {:?}", token, events, reg);
+        } else {
+            let reg = event_loop.register(socket, token, events, poll_opt);
+            debug!("Registered {:?} {:?} {:?}", token, events, reg);
+        }
+    }
     pub fn start(address: SocketAddr,
                  upstream_server: SocketAddr,
                  timeout: u64)
@@ -321,9 +291,6 @@ impl MioServer {
         let tcp_server = Self::bind_tcp(address);
 
         let mut event_loop = EventLoop::new().unwrap();
-
-        Self::register_server(&mut event_loop, &udp_server, UDP_SERVER_TOKEN);
-        Self::register_server(&mut event_loop, &tcp_server, TCP_SERVER_TOKEN);
 
         let tx = event_loop.channel();
         let max_connections = u16::max_value() as usize;
@@ -336,6 +303,11 @@ impl MioServer {
             requests: Slab::new_starting_at(Token(3), max_connections),
             responses: Vec::<UdpRequest>::new(),
         };
+
+        mio_server.register_server(&mut event_loop, UDP_SERVER_TOKEN);
+        mio_server.register_server(&mut event_loop, TCP_SERVER_TOKEN);
+
+
         let run_handle = thread::Builder::new()
                              .name("udp_srv_thread".to_string())
                              .spawn(move || {
