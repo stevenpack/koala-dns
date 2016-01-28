@@ -4,6 +4,7 @@ use mio::udp::UdpSocket;
 use std::net::SocketAddr;
 use dns::dns_entities::DnsMessage;
 use dns::dns_entities::DnsHeader;
+use socket::*;
 
 #[derive(Debug)]
 #[derive(PartialEq)]
@@ -29,7 +30,7 @@ pub struct UdpRequest {
     state: RequestState,
     pub token: Token,
     pub server_token: Token,
-    upstream_socket: UdpSocket,
+    upstream_socket: Socket,
     timeout_ms: u64,
     timeout_handle: Option<Timeout>,
     client_addr: SocketAddr,
@@ -44,6 +45,7 @@ impl UdpRequest {
                server_token: Token,
                client_addr: SocketAddr,
                upstream_addr: SocketAddr,
+               upstream_socket: Socket,
                query_buf: Vec<u8>,
                timeout: u64)
                -> UdpRequest {
@@ -54,8 +56,7 @@ impl UdpRequest {
             server_token: server_token,
             client_addr: client_addr,
             // todo: handle this by Option<> and error! the request but do not panic, or accepting in ctor
-            upstream_socket: UdpSocket::v4()
-                                 .unwrap_or_else(|e| panic!("Failed to create UDP socket {:?}", e)),
+            upstream_socket: upstream_socket,
             upstream_addr: upstream_addr,
             query_buf: query_buf,
             response_buf: None,
@@ -79,7 +80,7 @@ impl UdpRequest {
                             token: Token)
         where T: Handler
     {
-        event_loop.register(&self.upstream_socket,
+        event_loop.register(self.upstream_socket.evented(),
                             token,
                             events,
                             PollOpt::edge() | PollOpt::oneshot())
@@ -127,16 +128,13 @@ impl UdpRequest {
         where T: Handler<Timeout = Token>
     {
         debug_assert!(events.is_writable());
-        match self.upstream_socket.send_to(&mut self.query_buf.as_slice(), &self.upstream_addr) {
-            Ok(Some(_)) => {
+        match self.upstream_socket.send_to(&mut self.query_buf.as_slice(), self.upstream_addr) {
+            Some(n) => {
                 self.set_state(RequestState::Forwarded);
                 self.register_upstream(event_loop, EventSet::readable(), token);
                 self.set_timeout(event_loop, token);
             }
-            Ok(None) => debug!("0 bytes sent. Staying in same state {:?}", token),
-            Err(e) => {
-                self.error_with(format!("Failed to write to upstream_socket. {:?} {:?}", e, token))
-            }
+            None => debug!("0 bytes sent. Staying in same state {:?}", token),
         }
     }
 
@@ -146,18 +144,14 @@ impl UdpRequest {
         assert!(events.is_readable());
         let mut buf = [0; 4096];
         match self.upstream_socket.recv_from(&mut buf) {
-            Ok(Some((count, addr))) => {
-                debug!("Received {} bytes from {:?}", count, addr);
+            Some(count) => {
+                debug!("Received {} bytes", count);
                 trace!("{:#?}", DnsMessage::parse(&buf));
                 self.buffer_response(&buf, count);
                 self.clear_timeout(event_loop, token);
                 self.set_state(RequestState::ResponseReceived);
             }
-            Ok(None) => debug!("No data received on upstream_socket. {:?}", token),
-            Err(e) => {
-                self.error_with(format!("Receive failed on {:?}. {:?}", token, e));
-                self.clear_timeout(event_loop, token);
-            }
+            None => debug!("No data received on upstream_socket. {:?}", token),
         }
     }
 

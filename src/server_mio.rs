@@ -12,6 +12,7 @@ use mio::{Sender, TryRead};
 use udp_request::UdpRequest;
 use dns::dns_entities::*;
 use std::collections::HashMap;
+use socket::*;
 
 pub struct MioServer {
     udp_server: UdpSocket,
@@ -146,7 +147,13 @@ impl MioServer {
         buf.extend_from_slice(bytes);
         return self.requests
                    .insert_with(|tok| {
-                       UdpRequest::new(tok, server_token, addr, upstream_server, buf, timeout_ms)
+                       UdpRequest::new(tok,
+                                       server_token,
+                                       addr,
+                                       upstream_server,
+                                       Socket::new(UdpSocket::v4().ok(), None),
+                                       buf,
+                                       timeout_ms)
                    });
     }
 
