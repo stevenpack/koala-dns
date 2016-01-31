@@ -1,0 +1,4 @@
+- common interface for TCP/UDP
+- robustness with upstream dependencies
+- make based config
+-

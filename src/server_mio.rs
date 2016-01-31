@@ -20,6 +20,7 @@ pub struct MioServer {
     upstream_server: SocketAddr,
     timeout: u64,
     pending: HashMap<Token, TcpStream>,
+    accepted: HashMap<Token, TcpStream>,
     requests: Slab<UdpRequest>,
     responses: Vec<UdpRequest>,
 }
@@ -31,13 +32,16 @@ impl Handler for MioServer {
     type Message = String; //todo: make enum
 
     fn ready(&mut self, event_loop: &mut EventLoop<Self>, token: Token, events: EventSet) {
-        debug!("TOKEN: {:?}", token);
+        debug!("enter ready {:?} {:?}", token, events);
         match token {
             TCP_SERVER_TOKEN => self.server_ready(event_loop, events, token),
             UDP_SERVER_TOKEN => self.server_ready(event_loop, events, token),
-            pending if self.pending.contains_key(&token) => self.accept_pending(pending),
+            pending if self.pending.contains_key(&token) => {
+                self.accept_pending(event_loop, events, pending)
+            }
             request => self.request_ready(event_loop, events, request),
         }
+        debug!("exit ready {:?} {:?}", token, events);
     }
 
     #[allow(unused_variables)]
@@ -61,7 +65,7 @@ impl Handler for MioServer {
 
 impl MioServer {
     fn server_ready(&mut self, event_loop: &mut EventLoop<Self>, events: EventSet, token: Token) {
-
+        debug!("server_ready {:?} {:?}", token, events);
         if events.is_writable() {
             self.send_reply();
             return; //TODO: consider: keeps writing out requests before accepting new responses.
@@ -77,17 +81,37 @@ impl MioServer {
                 }
             }
         }
-        self.reregister_server(event_loop, EventSet::readable(), token);
+        let mut events = EventSet::readable();
+        if self.responses.len() > 0 {
+            events = events | EventSet::writable();
+        }
+        self.reregister_server(event_loop, events, token);
     }
 
-    fn accept_pending(&mut self, token: Token) {
-        match self.pending.get_mut(&token) {
-            Some(mut stream) => Self::receive_tcp(&mut stream),
+    fn accept_pending(&mut self,
+                      event_loop: &mut EventLoop<Self>,
+                      events: EventSet,
+                      token: Token) {
+        debug_assert!(events.is_readable());
+        // TODO: We need keep a reference to the TcpStream to reply to
+        match self.pending.remove(&token) {
+            Some(mut stream) => {
+                let buf = Self::receive_tcp(&mut stream);
+                self.accepted.insert(token, stream);
+                match self.requests.get_mut(token) {
+                    Some(request) => {
+                        request.query_buf = buf;
+                    }
+                    None => error!("Request {:?} not found", token),
+                }
+            }
             None => error!("{:?} was not pending", token),
         }
+        self.ready(event_loop, token, events);
     }
 
     fn request_ready(&mut self, event_loop: &mut EventLoop<Self>, events: EventSet, token: Token) {
+        debug!("request_ready {:?} {:?}", token, events);
 
         let mut queue_response = false;
         let mut server_token = UDP_SERVER_TOKEN;
@@ -147,13 +171,7 @@ impl MioServer {
         buf.extend_from_slice(bytes);
         return self.requests
                    .insert_with(|tok| {
-                       UdpRequest::new(tok,
-                                       server_token,
-                                       addr,
-                                       upstream_server,
-                                       Socket::new(UdpSocket::v4().ok(), None),
-                                       buf,
-                                       timeout_ms)
+                       UdpRequest::new(tok, server_token, addr, upstream_server, buf, timeout_ms)
                    });
     }
 
@@ -187,16 +205,13 @@ impl MioServer {
         }
     }
 
-    fn receive_tcp(stream: &mut TcpStream) {
+    fn receive_tcp(stream: &mut TcpStream) -> Vec<u8> {
         info!("Have a TcpStream to receive from to {:?}", stream);
 
         let mut buf = Vec::<u8>::with_capacity(512);
         match stream.try_read_buf(&mut buf) {
             Ok(Some(0)) => info!("Read 0 bytes"),
-            Ok(Some(n)) => {
-                info!("Read {} bytesxx", n);
-                buf.truncate(n);
-            }
+            Ok(Some(n)) => buf.truncate(n),
             Ok(None) => info!("None"),
             Err(err) => error!("read failed {}", err),
 
@@ -207,6 +222,7 @@ impl MioServer {
         let b3 = b2.split_off(2);
         let msg = DnsMessage::parse(&b3);
         debug!("{:?}", msg);
+        b2
     }
 
     fn receive_udp(&self, socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
@@ -307,6 +323,7 @@ impl MioServer {
             upstream_server: upstream_server,
             timeout: timeout,
             pending: HashMap::<Token, TcpStream>::new(),
+            accepted: HashMap::<Token, TcpStream>::new(),
             requests: Slab::new_starting_at(Token(3), max_connections),
             responses: Vec::<UdpRequest>::new(),
         };

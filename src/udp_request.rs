@@ -10,17 +10,11 @@ use socket::*;
 #[derive(PartialEq)]
 pub enum RequestState {
     New,
-    // Connected,
-    Accepted,
-    // RequestReceived,
+    Connected,
     Forwarded,
     ResponseReceived,
     Error,
 }
-
-// Evented()
-// send_to()
-// recv_from()
 
 //
 // Encapsulates the components of a dns request and response over Udp.
@@ -35,7 +29,7 @@ pub struct UdpRequest {
     timeout_handle: Option<Timeout>,
     client_addr: SocketAddr,
     upstream_addr: SocketAddr,
-    query_buf: Vec<u8>,
+    pub query_buf: Vec<u8>,
     response_buf: Option<Vec<u8>>,
 }
 
@@ -45,7 +39,6 @@ impl UdpRequest {
                server_token: Token,
                client_addr: SocketAddr,
                upstream_addr: SocketAddr,
-               upstream_socket: Socket,
                query_buf: Vec<u8>,
                timeout: u64)
                -> UdpRequest {
@@ -55,8 +48,7 @@ impl UdpRequest {
             token: token,
             server_token: server_token,
             client_addr: client_addr,
-            // todo: handle this by Option<> and error! the request but do not panic, or accepting in ctor
-            upstream_socket: upstream_socket,
+            upstream_socket: Socket::new(),
             upstream_addr: upstream_addr,
             query_buf: query_buf,
             response_buf: None,
@@ -116,12 +108,16 @@ impl UdpRequest {
         }
     }
 
-    fn accept<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
+    fn connect<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
         where T: Handler<Timeout = Token>
     {
-        debug_assert!(events.is_readable());
-        self.set_state(RequestState::Accepted);
-        self.register_upstream(event_loop, EventSet::writable(), token);
+        self.upstream_socket.connect(self.upstream_addr);
+        if self.upstream_socket.is_connected() {
+            self.set_state(RequestState::Connected);
+            self.register_upstream(event_loop, EventSet::writable(), token);
+        } else {
+            self.error_with(format!("Failed to connect upstream {:?}", token));
+        }
     }
 
     fn forward<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
@@ -134,7 +130,11 @@ impl UdpRequest {
                 self.register_upstream(event_loop, EventSet::readable(), token);
                 self.set_timeout(event_loop, token);
             }
-            None => debug!("0 bytes sent. Staying in same state {:?}", token),
+            None => {
+                debug!("0 bytes sent. Staying in same state {:?}", token);
+                // TODO: reregister? inifinite loop if network error
+                // self.register_upstream(event_loop, EventSet::writable(), token);
+            }
         }
     }
 
@@ -167,8 +167,8 @@ impl UdpRequest {
     {
         debug!("State {:?} {:?} {:?}", self.state, token, events);
         match self.state {
-            RequestState::New => self.accept(event_loop, token, events),
-            RequestState::Accepted => self.forward(event_loop, token, events),
+            RequestState::New => self.connect(event_loop, token, events),
+            RequestState::Connected => self.forward(event_loop, token, events),
             RequestState::Forwarded => self.receive(event_loop, token, events),
             _ => debug!("Nothing to do for this state {:?}", self.state),
         }
@@ -189,7 +189,7 @@ impl UdpRequest {
 
     pub fn error_with(&mut self, err_msg: String) {
         self.set_state(RequestState::Error);
-        info!("{}", err_msg);
+        info!("Request error. Msg: {}", err_msg);
         let req = DnsMessage::parse(&self.query_buf);
         let reply = DnsHeader::new_error(req.header, 2);
         let vec = reply.to_bytes();

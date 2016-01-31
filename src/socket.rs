@@ -11,16 +11,18 @@ pub struct Socket {
 }
 
 impl Socket {
-    pub fn new(udp_socket: Option<UdpSocket>, tcp_socket: Option<TcpStream>) -> Socket {
+    pub fn new() -> Socket {
         return Socket {
-            udp_socket: udp_socket,
-            tcp_socket: tcp_socket,
+            udp_socket: None,
+            tcp_socket: None,
         };
     }
 }
 
 pub trait SocketOps {
     fn evented(&self) -> &Evented;
+    fn connect(&mut self, addr: SocketAddr);
+    fn is_connected(&self) -> bool;
     fn recv_from(&mut self, buf: &mut [u8]) -> Option<usize>;
     fn send_to(&mut self, buf: &[u8], addr: SocketAddr) -> Option<usize>;
 }
@@ -32,6 +34,19 @@ impl SocketOps for Socket {
         }
         return self.tcp_socket.as_ref().unwrap();
     }
+    fn connect(&mut self, addr: SocketAddr) {
+        if self.udp_socket.is_some() {
+            self.udp_socket = UdpSocket::v4().ok();
+            return;
+        }
+        if self.tcp_socket.is_some() {
+            self.tcp_socket = TcpStream::connect(&addr).ok();
+        }
+    }
+    fn is_connected(&self) -> bool {
+        return self.udp_socket.is_some() || self.tcp_socket.is_some();
+    }
+
     fn recv_from(&mut self, buf: &mut [u8]) -> Option<usize> {
         if self.udp_socket.is_some() {
             match self.udp_socket {
