@@ -1,7 +1,9 @@
 extern crate bytes;
 use mio::{Token, EventSet, Timeout, EventLoop, Handler, PollOpt};
 use mio::udp::UdpSocket;
-use std::net::SocketAddr;
+use mio::tcp::TcpStream;
+use std::io::Write;
+use std::net::{SocketAddr, Shutdown};
 use dns::dns_entities::DnsMessage;
 use dns::dns_entities::DnsHeader;
 use socket::*;
@@ -187,13 +189,37 @@ impl UdpRequest {
         }
     }
 
+    pub fn send_tcp(&mut self, socket: &mut TcpStream) {
+        match self.response_buf {
+            Some(ref mut response) => {
+
+                // prefix with length
+                let len = response.len() as u8;
+                response.insert(0, len);
+                response.insert(0, 0);
+
+                info!("{:?} bytes to send", response.len());
+
+                match socket.write_all(&mut &response.as_slice()) {
+                    Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, socket.peer_addr()),
+                    Err(e) => error!("Failed to send. {:?} Error was {:?}", self.client_addr, e),
+                }
+            }
+            None => error!("Trying to send before a response has been buffered."),
+        }
+        socket.flush();
+        // socket.shutdown(Shutdown::Both);
+    }
+
     pub fn error_with(&mut self, err_msg: String) {
         self.set_state(RequestState::Error);
         info!("Request error. Msg: {}", err_msg);
         let req = DnsMessage::parse(&self.query_buf);
         let reply = DnsHeader::new_error(req.header, 2);
         let vec = reply.to_bytes();
+        debug!("Error is {:?}", vec);
         self.response_buf = Some(vec);
+
     }
 
     pub fn has_reply(&self) -> bool {

@@ -113,6 +113,12 @@ impl MioServer {
     fn request_ready(&mut self, event_loop: &mut EventLoop<Self>, events: EventSet, token: Token) {
         debug!("request_ready {:?} {:?}", token, events);
 
+        if events.is_writable() {
+            debug!("Writable. Must be a tcp response ready to write");
+            self.send_reply();
+            return;
+        }
+
         let mut queue_response = false;
         let mut server_token = UDP_SERVER_TOKEN;
         match self.requests.get_mut(token) {
@@ -125,9 +131,21 @@ impl MioServer {
         }
         if queue_response {
             self.queue_response(token);
-            self.reregister_server(event_loop,
-                                   EventSet::readable() | EventSet::writable(),
-                                   server_token);
+            // udp replies get sent via the server socket
+            if server_token == UDP_SERVER_TOKEN {
+                self.reregister_server(event_loop,
+                                       EventSet::readable() | EventSet::writable(),
+                                       server_token);
+            }
+
+            // tcp replies get sent via the client socket
+            if server_token == TCP_SERVER_TOKEN {
+                Self::register(event_loop,
+                               self.accepted.get(&token).unwrap(),
+                               EventSet::writable(),
+                               token,
+                               true);
+            }
         }
     }
 
@@ -155,7 +173,19 @@ impl MioServer {
     fn send_reply(&mut self) {
         debug!("There are {} responses to send", self.responses.len());
         match self.responses.pop() {
-            Some(reply) => reply.send(&self.udp_server),
+            Some(mut reply) => {
+                if reply.server_token == UDP_SERVER_TOKEN {
+                    debug!("sending udp");
+                    reply.send(&self.udp_server);
+                }
+                if reply.server_token == TCP_SERVER_TOKEN {
+                    debug!("sending tcp");
+                    match self.accepted.remove(&reply.token) {
+                        Some(mut stream) => reply.send_tcp(&mut stream),
+                        None => info!("Not in accepted"),
+                    }
+                }
+            }
             None => warn!("Nothing to send."),
         }
     }
@@ -216,13 +246,15 @@ impl MioServer {
             Err(err) => error!("read failed {}", err),
 
         }
+
         info!("Read {} bytes", buf.len());
         // TODO: FIRST TWO BYTES IN TCP ARE LENGTH
         let mut b2 = Vec::from(buf);
+        let ret = b2.clone();
         let b3 = b2.split_off(2);
         let msg = DnsMessage::parse(&b3);
         debug!("{:?}", msg);
-        b2
+        return b3.clone();
     }
 
     fn receive_udp(&self, socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
