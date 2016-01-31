@@ -250,7 +250,6 @@ impl MioServer {
         info!("Read {} bytes", buf.len());
         // TODO: FIRST TWO BYTES IN TCP ARE LENGTH
         let mut b2 = Vec::from(buf);
-        let ret = b2.clone();
         let b3 = b2.split_off(2);
         let msg = DnsMessage::parse(&b3);
         debug!("{:?}", msg);

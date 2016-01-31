@@ -1,5 +1,5 @@
 extern crate mio;
-use mio::{Evented, Token, EventLoop, EventSet, PollOpt, Handler};
+use mio::Evented;
 use mio::tcp::TcpStream;
 use std::io::{Read, Write};
 use mio::udp::UdpSocket;
@@ -52,7 +52,7 @@ impl SocketOps for Socket {
             match self.udp_socket {
                 Some(ref socket) => {
                     match socket.recv_from(buf) {
-                        Ok(Some((cnt, addr))) => return Some(cnt),
+                        Ok(Some((cnt, _))) => return Some(cnt),
                         Ok(None) => return None,
                         Err(err) => {
                             error!("Failed to receive on UDP. {}", err);

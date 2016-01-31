@@ -3,10 +3,23 @@ use mio::{Token, EventSet, Timeout, EventLoop, Handler, PollOpt};
 use mio::udp::UdpSocket;
 use mio::tcp::TcpStream;
 use std::io::Write;
-use std::net::{SocketAddr, Shutdown};
+use std::net::SocketAddr;
 use dns::dns_entities::DnsMessage;
 use dns::dns_entities::DnsHeader;
 use socket::*;
+
+// pub struct RequestHandler {
+//     state: RequestState,
+//     pub id: Token,
+//     pub srv_id: Token,
+//     pub query_buf: Vec<u8>,
+//     response_buf: Option<Vec<u8>>,
+// }
+//
+// trait RequestHandlerOps {
+//     fn ready(&self);
+//
+// }
 
 #[derive(Debug)]
 #[derive(PartialEq)]
@@ -110,7 +123,8 @@ impl UdpRequest {
         }
     }
 
-    fn connect<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
+
+    fn connect<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token)
         where T: Handler<Timeout = Token>
     {
         self.upstream_socket.connect(self.upstream_addr);
@@ -127,7 +141,7 @@ impl UdpRequest {
     {
         debug_assert!(events.is_writable());
         match self.upstream_socket.send_to(&mut self.query_buf.as_slice(), self.upstream_addr) {
-            Some(n) => {
+            Some(_) => {
                 self.set_state(RequestState::Forwarded);
                 self.register_upstream(event_loop, EventSet::readable(), token);
                 self.set_timeout(event_loop, token);
@@ -169,7 +183,7 @@ impl UdpRequest {
     {
         debug!("State {:?} {:?} {:?}", self.state, token, events);
         match self.state {
-            RequestState::New => self.connect(event_loop, token, events),
+            RequestState::New => self.connect(event_loop, token),
             RequestState::Connected => self.forward(event_loop, token, events),
             RequestState::Forwarded => self.receive(event_loop, token, events),
             _ => debug!("Nothing to do for this state {:?}", self.state),
@@ -207,7 +221,7 @@ impl UdpRequest {
             }
             None => error!("Trying to send before a response has been buffered."),
         }
-        socket.flush();
+        let _ = socket.flush();
         // socket.shutdown(Shutdown::Both);
     }
 

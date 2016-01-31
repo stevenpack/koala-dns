@@ -1,4 +1,8 @@
 - common interface for TCP/UDP
 - robustness with upstream dependencies
 - make based config
--
+
+mio
+---
+
+Read 0, None, when to reregister?
