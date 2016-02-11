@@ -12,6 +12,6 @@ pub mod server;
 mod dns;
 mod command_line;
 mod server_mio;
-mod udp_request;
+mod request;
 mod buf;
 mod socket;

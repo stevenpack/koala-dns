@@ -35,7 +35,7 @@ pub enum RequestState {
 // Encapsulates the components of a dns request and response over Udp.
 //
 // #[derive(Debug)]
-pub struct UdpRequest {
+pub struct Request {
     state: RequestState,
     pub token: Token,
     pub server_token: Token,
@@ -49,21 +49,21 @@ pub struct UdpRequest {
 }
 
 
-impl UdpRequest {
+impl Request {
     pub fn new(token: Token,
                server_token: Token,
                client_addr: SocketAddr,
                upstream_addr: SocketAddr,
                query_buf: Vec<u8>,
                timeout: u64)
-               -> UdpRequest {
+               -> Request {
         // debug!("New UDP transaction: {:?}", upstream_token);
-        return UdpRequest {
+        return Request {
             state: RequestState::New,
             token: token,
             server_token: server_token,
             client_addr: client_addr,
-            upstream_socket: Socket::new(),
+            upstream_socket: Socket::new(server_token == TCP_SERVER_TOKEN),
             upstream_addr: upstream_addr,
             query_buf: query_buf,
             response_buf: None,

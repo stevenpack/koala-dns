@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use std::thread;
 use std::thread::JoinHandle;
 use mio::{Sender, TryRead};
-use udp_request::UdpRequest;
+use request::Request;
 use dns::dns_entities::*;
 use std::collections::HashMap;
 use socket::*;
@@ -21,8 +21,8 @@ pub struct MioServer {
     timeout: u64,
     pending: HashMap<Token, TcpStream>,
     accepted: HashMap<Token, TcpStream>,
-    requests: Slab<UdpRequest>,
-    responses: Vec<UdpRequest>,
+    requests: Slab<Request>,
+    responses: Vec<Request>,
 }
 
 const TCP_SERVER_TOKEN: Token = Token(1);
@@ -159,7 +159,7 @@ impl MioServer {
         }
     }
 
-    fn remove_request(&mut self, token: Token) -> Option<UdpRequest> {
+    fn remove_request(&mut self, token: Token) -> Option<Request> {
         match self.requests.remove(token) {
             Some(request) => {
                 debug!("Removed {:?} from pending requests.", token);
@@ -201,7 +201,7 @@ impl MioServer {
         buf.extend_from_slice(bytes);
         return self.requests
                    .insert_with(|tok| {
-                       UdpRequest::new(tok, server_token, addr, upstream_server, buf, timeout_ms)
+                       Request::new(tok, server_token, addr, upstream_server, buf, timeout_ms)
                    });
     }
 
@@ -356,7 +356,7 @@ impl MioServer {
             pending: HashMap::<Token, TcpStream>::new(),
             accepted: HashMap::<Token, TcpStream>::new(),
             requests: Slab::new_starting_at(Token(3), max_connections),
-            responses: Vec::<UdpRequest>::new(),
+            responses: Vec::<Request>::new(),
         };
 
         mio_server.register_server(&mut event_loop, UDP_SERVER_TOKEN);

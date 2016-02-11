@@ -10,7 +10,7 @@ extern crate test;
 mod command_line;
 mod server;
 mod server_mio;
-mod udp_request;
+mod request;
 mod dns;
 mod buf;
 mod socket;

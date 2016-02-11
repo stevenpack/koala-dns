@@ -10,6 +10,9 @@ pub struct Socket {
     tcp_socket: Option<TcpStream>,
 }
 
+//
+// Common interface to recv/send to a socket, be it UDP or TCP.
+//
 impl Socket {
     pub fn new() -> Socket {
         return Socket {
@@ -35,6 +38,8 @@ impl SocketOps for Socket {
         return self.tcp_socket.as_ref().unwrap();
     }
     fn connect(&mut self, addr: SocketAddr) {
+        debug!("Connecting to {:?}", addr);
+        // TODO: this will be None... ServerToken gets passed into Request
         if self.udp_socket.is_some() {
             self.udp_socket = UdpSocket::v4().ok();
             return;
