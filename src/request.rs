@@ -8,19 +8,6 @@ use dns::dns_entities::DnsMessage;
 use dns::dns_entities::DnsHeader;
 use socket::*;
 
-// pub struct RequestHandler {
-//     state: RequestState,
-//     pub id: Token,
-//     pub srv_id: Token,
-//     pub query_buf: Vec<u8>,
-//     response_buf: Option<Vec<u8>>,
-// }
-//
-// trait RequestHandlerOps {
-//     fn ready(&self);
-//
-// }
-
 #[derive(Debug)]
 #[derive(PartialEq)]
 pub enum RequestState {
@@ -38,7 +25,7 @@ pub enum RequestState {
 pub struct Request {
     state: RequestState,
     pub token: Token,
-    pub server_token: Token,
+    pub socket_type: SocketType,
     upstream_socket: Socket,
     timeout_ms: u64,
     timeout_handle: Option<Timeout>,
@@ -51,19 +38,19 @@ pub struct Request {
 
 impl Request {
     pub fn new(token: Token,
-               server_token: Token,
+               socket_type: SocketType,
                client_addr: SocketAddr,
                upstream_addr: SocketAddr,
                query_buf: Vec<u8>,
                timeout: u64)
                -> Request {
-        // debug!("New UDP transaction: {:?}", upstream_token);
+        debug!("New Request transaction: {:?}", socket_type);
         return Request {
             state: RequestState::New,
             token: token,
-            server_token: server_token,
+            socket_type: socket_type,
             client_addr: client_addr,
-            upstream_socket: Socket::new(server_token == TCP_SERVER_TOKEN),
+            upstream_socket: Socket::new(socket_type, upstream_addr),
             upstream_addr: upstream_addr,
             query_buf: query_buf,
             response_buf: None,
@@ -127,7 +114,7 @@ impl Request {
     fn connect<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token)
         where T: Handler<Timeout = Token>
     {
-        self.upstream_socket.connect(self.upstream_addr);
+        // self.upstream_socket.connect(self.upstream_addr);
         if self.upstream_socket.is_connected() {
             self.set_state(RequestState::Connected);
             self.register_upstream(event_loop, EventSet::writable(), token);
@@ -141,7 +128,8 @@ impl Request {
     {
         debug_assert!(events.is_writable());
         match self.upstream_socket.send_to(&mut self.query_buf.as_slice(), self.upstream_addr) {
-            Some(_) => {
+            Some(n) => {
+                debug!("Sent {} bytes", n);
                 self.set_state(RequestState::Forwarded);
                 self.register_upstream(event_loop, EventSet::readable(), token);
                 self.set_timeout(event_loop, token);

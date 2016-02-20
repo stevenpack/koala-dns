@@ -1,4 +1,5 @@
 #![feature(test)]
+#![feature(type_ascription)]
 extern crate getopts;
 extern crate mio;
 #[macro_use]

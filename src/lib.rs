@@ -1,5 +1,6 @@
 //to support both a lib and bin build
 #![feature(test)]
+#![feature(type_ascription)]
 extern crate getopts;
 extern crate mio;
 #[macro_use]

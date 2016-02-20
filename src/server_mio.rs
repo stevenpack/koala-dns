@@ -113,33 +113,27 @@ impl MioServer {
     fn request_ready(&mut self, event_loop: &mut EventLoop<Self>, events: EventSet, token: Token) {
         debug!("request_ready {:?} {:?}", token, events);
 
-        if events.is_writable() {
-            debug!("Writable. Must be a tcp response ready to write");
-            self.send_reply();
-            return;
-        }
-
         let mut queue_response = false;
-        let mut server_token = UDP_SERVER_TOKEN;
+        let mut socket_type = SocketType::UdpV4;
         match self.requests.get_mut(token) {
             Some(mut request) => {
                 request.ready(event_loop, token, events);
                 queue_response = request.has_reply();
-                server_token = request.server_token;
+                socket_type = request.socket_type;
             }
             None => warn!("{:?} not in requests", token),
         }
         if queue_response {
             self.queue_response(token);
             // udp replies get sent via the server socket
-            if server_token == UDP_SERVER_TOKEN {
+            if socket_type == SocketType::UdpV4 {
                 self.reregister_server(event_loop,
                                        EventSet::readable() | EventSet::writable(),
-                                       server_token);
+                                       UDP_SERVER_TOKEN);
             }
 
             // tcp replies get sent via the client socket
-            if server_token == TCP_SERVER_TOKEN {
+            if socket_type == SocketType::TcpV4 {
                 Self::register(event_loop,
                                self.accepted.get(&token).unwrap(),
                                EventSet::writable(),
@@ -147,6 +141,13 @@ impl MioServer {
                                true);
             }
         }
+
+        if self.responses.len() > 0 {
+            debug!("Response to write...");
+            self.send_reply();
+            return;
+        }
+
     }
 
     fn queue_response(&mut self, token: Token) {
@@ -174,11 +175,11 @@ impl MioServer {
         debug!("There are {} responses to send", self.responses.len());
         match self.responses.pop() {
             Some(mut reply) => {
-                if reply.server_token == UDP_SERVER_TOKEN {
+                if reply.socket_type == SocketType::UdpV4 {
                     debug!("sending udp");
                     reply.send(&self.udp_server);
                 }
-                if reply.server_token == TCP_SERVER_TOKEN {
+                if reply.socket_type == SocketType::TcpV4 {
                     debug!("sending tcp");
                     match self.accepted.remove(&reply.token) {
                         Some(mut stream) => reply.send_tcp(&mut stream),
@@ -199,9 +200,13 @@ impl MioServer {
         let timeout_ms = self.timeout;
         let mut buf = Vec::<u8>::with_capacity(bytes.len());
         buf.extend_from_slice(bytes);
+        let mut socket_type = SocketType::UdpV4;
+        if server_token == TCP_SERVER_TOKEN {
+            socket_type = SocketType::TcpV4;
+        }
         return self.requests
                    .insert_with(|tok| {
-                       Request::new(tok, server_token, addr, upstream_server, buf, timeout_ms)
+                       Request::new(tok, socket_type, addr, upstream_server, buf, timeout_ms)
                    });
     }
 
