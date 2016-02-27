@@ -25,20 +25,24 @@ impl Handler for MioServer {
     type Message = String; //todo: make enum
 
     fn ready(&mut self, event_loop: &mut EventLoop<Self>, token: Token, events: EventSet) {
+
+        let ctx = RequestContext::from(event_loop, events, token);
+
         match token {
-            UDP_SERVER_TOKEN => self.server_ready(event_loop, events),
-            request_token => self.request_ready(event_loop, events, request_token),
+            UDP_SERVER_TOKEN => self.server_ready(ctx),
+            _ => self.request_ready(ctx),
         }
     }
 
     #[allow(unused_variables)]
     fn timeout(&mut self, event_loop: &mut EventLoop<Self>, token: Self::Timeout) {
         info!("Got timeout: {:?}", token);
+        let ctx = RequestContext::from(event_loop, EventSet::none(), token);
         match self.requests.get_mut(token) {
             Some(mut request) => request.on_timeout(token),
             None => warn!("Timed out request wasn't present. {:?}", token),
         }
-        self.request_ready(event_loop, EventSet::none(), token);
+        self.request_ready(ctx);
     }
 
     fn notify(&mut self, event_loop: &mut EventLoop<Self>, msg: String) {
@@ -50,36 +54,50 @@ impl Handler for MioServer {
     }
 }
 
-impl MioServer {
-    fn server_ready(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
-        if events.is_readable() {
-            self.accept(event_loop, events);
+struct RequestContext<'a> {
+    event_loop: &'a mut EventLoop<MioServer>,
+    events: EventSet,
+    token: Token
+}
+
+impl<'a> RequestContext<'a> {
+    fn from(event_loop: &mut EventLoop<MioServer>, events: EventSet, token: Token) -> RequestContext {
+        return RequestContext {
+            event_loop: event_loop,
+            events: events,
+            token: token
         }
-        if events.is_writable() {
+    }
+}
+
+impl MioServer {
+    fn server_ready(&mut self, ctx: RequestContext) {
+        if ctx.events.is_readable() {
+            self.accept(ctx.event_loop, ctx.events);
+        }
+        if ctx.events.is_writable() {
             self.send_reply();
         }
         // We are always listening for new requests. The server socket will be regregistered
         // as writable if there are responses to write
-        self.reregister_server(event_loop, EventSet::readable());
+        self.reregister_server(ctx.event_loop, EventSet::readable());
         // todo: check events.remove() and add() as way to go writable...
     }
 
     fn request_ready(&mut self,
-                     event_loop: &mut EventLoop<MioServer>,
-                     events: EventSet,
-                     token: Token) {
+                     ctx: RequestContext) {
 
         let mut queue_response = false;
-        match self.requests.get_mut(token) {
+        match self.requests.get_mut(ctx.token) {
             Some(mut request) => {
-                request.ready(event_loop, token, events);
+                request.ready(ctx.event_loop, ctx.token, ctx.events);
                 queue_response = request.has_reply();
             }
-            None => warn!("{:?} not in requests", token),
+            None => warn!("{:?} not in requests", ctx.token),
         }
         if queue_response {
-            self.queue_response(token);
-            self.reregister_server(event_loop, EventSet::readable() | EventSet::writable());
+            self.queue_response(ctx.token);
+            self.reregister_server(ctx.event_loop, EventSet::readable() | EventSet::writable());
         }
     }
 
@@ -154,6 +172,8 @@ impl MioServer {
             }
         };
     }
+
+
 
     fn accept(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
         let new_tok = self.receive(&self.udp_server)
