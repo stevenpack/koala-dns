@@ -8,7 +8,7 @@ use std::net::SocketAddr;
 use std::thread;
 use std::thread::JoinHandle;
 use mio::Sender;
-use udp_request::UdpRequest;
+use udp_request::{RequestBase, RequestParams, UdpRequest};
 
 pub struct MioServer {
     udp_server: UdpSocket,
@@ -57,16 +57,19 @@ impl Handler for MioServer {
 struct RequestContext<'a> {
     event_loop: &'a mut EventLoop<MioServer>,
     events: EventSet,
-    token: Token
+    token: Token,
 }
 
 impl<'a> RequestContext<'a> {
-    fn from(event_loop: &mut EventLoop<MioServer>, events: EventSet, token: Token) -> RequestContext {
+    fn from(event_loop: &mut EventLoop<MioServer>,
+            events: EventSet,
+            token: Token)
+            -> RequestContext {
         return RequestContext {
             event_loop: event_loop,
             events: events,
-            token: token
-        }
+            token: token,
+        };
     }
 }
 
@@ -84,8 +87,7 @@ impl MioServer {
         // todo: check events.remove() and add() as way to go writable...
     }
 
-    fn request_ready(&mut self,
-                     ctx: RequestContext) {
+    fn request_ready(&mut self, ctx: RequestContext) {
 
         let mut queue_response = false;
         match self.requests.get_mut(ctx.token) {
@@ -160,11 +162,18 @@ impl MioServer {
     }
 
     fn add_transaction(&mut self, addr: SocketAddr, bytes: &[u8]) -> Option<Token> {
-        let upstream_server = self.upstream_server;
-        let timeout_ms = self.timeout;
         let mut buf = Vec::<u8>::with_capacity(bytes.len());
         buf.extend_from_slice(bytes);
-        match self.requests.insert(UdpRequest::new(addr, upstream_server, buf, timeout_ms)) {
+
+        // TODO: static
+        let params = RequestParams {
+            timeout: self.timeout,
+            upstream_addr: self.upstream_server,
+        };
+        let request = RequestBase::new(buf, params);
+
+        // TODO: lose unwrap
+        match self.requests.insert(UdpRequest::new(addr, request).unwrap()) {
             Ok(new_tok) => return Some(new_tok),
             Err(_) => {
                 error!("Unable to start new transaction. Add to slab failed.");

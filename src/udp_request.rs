@@ -15,50 +15,69 @@ pub enum RequestState {
     Error,
 }
 
+pub struct RequestBase {
+    state: RequestState,
+    query_buf: Vec<u8>,
+    response_buf: Option<Vec<u8>>,
+    timeout_handle: Option<Timeout>,
+
+    // Separate? This is only required for upstream
+    params: RequestParams,
+}
+
+pub struct RequestParams {
+    pub timeout: u64,
+    pub upstream_addr: SocketAddr,
+}
+
+impl RequestBase {
+    pub fn new(query_buf: Vec<u8>, params: RequestParams) -> RequestBase {
+        return RequestBase {
+            state: RequestState::New,
+            query_buf: query_buf,
+            response_buf: None,
+            timeout_handle: None,
+            params: params,
+        };
+    }
+}
 //
 // Encapsulates the components of a dns request and response over Udp.
 //
 // #[derive(Debug)]
 pub struct UdpRequest {
-    state: RequestState,
     upstream_socket: UdpSocket,
-    timeout_ms: u64,
-    timeout_handle: Option<Timeout>,
     client_addr: SocketAddr,
-    upstream_addr: SocketAddr,
-    query_buf: Vec<u8>,
-    response_buf: Option<Vec<u8>>,
+    inner: RequestBase,
 }
 
 
 impl UdpRequest {
-    pub fn new(client_addr: SocketAddr,
-               upstream_addr: SocketAddr,
-               query_buf: Vec<u8>,
-               timeout: u64)
-               -> UdpRequest {
+    pub fn new(client_addr: SocketAddr, request: RequestBase) -> Option<UdpRequest> {
         // debug!("New UDP transaction: {:?}", upstream_token);
-        return UdpRequest {
-            state: RequestState::New,
-            client_addr: client_addr,
-            // todo: handle this by Option<> and error! the request but do not panic, or accepting in ctor
-            upstream_socket: UdpSocket::v4()
-                                 .unwrap_or_else(|e| panic!("Failed to create UDP socket {:?}", e)),
-            upstream_addr: upstream_addr,
-            query_buf: query_buf,
-            response_buf: None,
-            timeout_ms: timeout,
-            timeout_handle: None,
-        };
+
+        match UdpSocket::v4() {
+            Ok(sock) => {
+                return Some(UdpRequest {
+                    upstream_socket: sock,
+                    client_addr: client_addr,
+                    inner: request,
+                });
+            }
+            Err(e) => {
+                error!("Failed to create UDP socket. {}", e);
+                None
+            }
+        }
     }
 
     fn set_state(&mut self, state: RequestState) {
-        debug!("{:?} -> {:?}", self.state, state);
-        self.state = state;
+        debug!("{:?} -> {:?}", self.inner.state, state);
+        self.inner.state = state;
     }
 
     fn set_timeout_handle(&mut self, timeout: Timeout) {
-        self.timeout_handle = Some(timeout);
+        self.inner.timeout_handle = Some(timeout);
     }
 
     fn register_upstream<T>(&mut self,
@@ -82,7 +101,7 @@ impl UdpRequest {
     fn set_timeout<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token)
         where T: Handler<Timeout = Token>
     {
-        match event_loop.timeout_ms(token, self.timeout_ms) {
+        match event_loop.timeout_ms(token, self.inner.params.timeout) {
             Ok(t) => self.set_timeout_handle(t),
             Err(e) => error!("Failed to schedule timeout for {:?}. {:?}", token, e),
         }
@@ -91,7 +110,7 @@ impl UdpRequest {
     pub fn clear_timeout<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token)
         where T: Handler<Timeout = Token>
     {
-        match self.timeout_handle {
+        match self.inner.timeout_handle {
             Some(handle) => {
                 if event_loop.clear_timeout(handle) {
                     debug!("Timeout cleared for {:?}", token);
@@ -116,10 +135,14 @@ impl UdpRequest {
         where T: Handler<Timeout = Token>
     {
         debug_assert!(events.is_writable());
-        match self.upstream_socket.send_to(&mut self.query_buf.as_slice(), &self.upstream_addr) {
+        match self.upstream_socket
+                  .send_to(&mut self.inner.query_buf.as_slice(),
+                           &self.inner.params.upstream_addr) {
             Ok(Some(_)) => {
                 self.set_state(RequestState::Forwarded);
                 self.register_upstream(event_loop, EventSet::readable(), token);
+                // TODO: No, don't just timeout forwarded requests, time out the whole request,
+                // be it cached, authorative or forwarded
                 self.set_timeout(event_loop, token);
             }
             Ok(None) => debug!("0 bytes sent. Staying in same state {:?}", token),
@@ -154,23 +177,23 @@ impl UdpRequest {
         let mut response = Vec::with_capacity(count);
         response.extend_from_slice(&buf);
         response.truncate(count);
-        self.response_buf = Some(response);
+        self.inner.response_buf = Some(response);
     }
 
     pub fn ready<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
         where T: Handler<Timeout = Token>
     {
-        debug!("State {:?} {:?} {:?}", self.state, token, events);
-        match self.state {
+        debug!("State {:?} {:?} {:?}", self.inner.state, token, events);
+        match self.inner.state {
             RequestState::New => self.accept(event_loop, token, events),
             RequestState::Accepted => self.forward(event_loop, token, events),
             RequestState::Forwarded => self.receive(event_loop, token, events),
-            _ => debug!("Nothing to do for this state {:?}", self.state),
+            _ => debug!("Nothing to do for this state {:?}", self.inner.state),
         }
     }
 
     pub fn send(&self, socket: &UdpSocket) {
-        match self.response_buf {
+        match self.inner.response_buf {
             Some(ref response) => {
                 info!("{:?} bytes to send", response.len());
                 match socket.send_to(&mut &response.as_slice(), &self.client_addr) {
@@ -185,13 +208,13 @@ impl UdpRequest {
     pub fn error_with(&mut self, err_msg: String) {
         self.set_state(RequestState::Error);
         info!("{}", err_msg);
-        let req = DnsMessage::parse(&self.query_buf);
+        let req = DnsMessage::parse(&self.inner.query_buf);
         let reply = DnsHeader::new_error(req.header, 2);
         let vec = reply.to_bytes();
-        self.response_buf = Some(vec);
+        self.inner.response_buf = Some(vec);
     }
 
     pub fn has_reply(&self) -> bool {
-        return self.response_buf.is_some();
+        return self.inner.response_buf.is_some();
     }
 }
