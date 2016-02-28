@@ -40,7 +40,7 @@ impl Handler for MioServer {
         info!("Got timeout: {:?}", token);
         let mut ctx = RequestContext::from(event_loop, EventSet::none(), token);
         match self.requests.get_mut(token) {
-            Some(mut request) => request.on_timeout(token),
+            Some(mut request) => request.inner.on_timeout(token),
             None => warn!("Timed out request wasn't present. {:?}", token),
         }
         self.request_ready(&mut ctx);
@@ -94,7 +94,7 @@ impl MioServer {
         match self.requests.get_mut(ctx.token) {
             Some(mut request) => {
                 request.ready(ctx);
-                queue_response = request.has_reply();
+                queue_response = request.inner.has_reply();
             }
             None => warn!("{:?} not in requests", ctx.token),
         }
