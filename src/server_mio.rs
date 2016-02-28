@@ -8,7 +8,8 @@ use std::net::SocketAddr;
 use std::thread;
 use std::thread::JoinHandle;
 use mio::Sender;
-use request::udp_request::{RequestBase, RequestParams, UdpRequest};
+use request::udp_request::UdpRequest;
+use request::request_base::{RequestBase, RequestParams};
 
 pub struct MioServer {
     udp_server: UdpSocket,

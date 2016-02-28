@@ -4,43 +4,8 @@ use mio::udp::UdpSocket;
 use std::net::SocketAddr;
 use dns::dns_entities::DnsMessage;
 use dns::dns_entities::DnsHeader;
+use request::request_base::{RequestBase, RequestState};
 
-#[derive(Debug)]
-#[derive(PartialEq)]
-pub enum RequestState {
-    New,
-    Accepted,
-    Forwarded,
-    ResponseReceived,
-    Error,
-}
-
-pub struct RequestBase {
-    state: RequestState,
-    query_buf: Vec<u8>,
-    response_buf: Option<Vec<u8>>,
-    timeout_handle: Option<Timeout>,
-
-    // Separate? This is only required for upstream
-    params: RequestParams,
-}
-
-pub struct RequestParams {
-    pub timeout: u64,
-    pub upstream_addr: SocketAddr,
-}
-
-impl RequestBase {
-    pub fn new(query_buf: Vec<u8>, params: RequestParams) -> RequestBase {
-        return RequestBase {
-            state: RequestState::New,
-            query_buf: query_buf,
-            response_buf: None,
-            timeout_handle: None,
-            params: params,
-        };
-    }
-}
 //
 // Encapsulates the components of a dns request and response over Udp.
 //
