@@ -27,23 +27,23 @@ impl Handler for MioServer {
 
     fn ready(&mut self, event_loop: &mut EventLoop<Self>, token: Token, events: EventSet) {
 
-        let ctx = RequestContext::from(event_loop, events, token);
+        let mut ctx = RequestContext::from(event_loop, events, token);
 
         match token {
             UDP_SERVER_TOKEN => self.server_ready(ctx),
-            _ => self.request_ready(ctx),
+            _ => self.request_ready(&mut ctx),
         }
     }
 
     #[allow(unused_variables)]
     fn timeout(&mut self, event_loop: &mut EventLoop<Self>, token: Self::Timeout) {
         info!("Got timeout: {:?}", token);
-        let ctx = RequestContext::from(event_loop, EventSet::none(), token);
+        let mut ctx = RequestContext::from(event_loop, EventSet::none(), token);
         match self.requests.get_mut(token) {
             Some(mut request) => request.on_timeout(token),
             None => warn!("Timed out request wasn't present. {:?}", token),
         }
-        self.request_ready(ctx);
+        self.request_ready(&mut ctx);
     }
 
     fn notify(&mut self, event_loop: &mut EventLoop<Self>, msg: String) {
@@ -55,10 +55,10 @@ impl Handler for MioServer {
     }
 }
 
-struct RequestContext<'a> {
-    event_loop: &'a mut EventLoop<MioServer>,
-    events: EventSet,
-    token: Token,
+pub struct RequestContext<'a> {
+    pub event_loop: &'a mut EventLoop<MioServer>,
+    pub events: EventSet,
+    pub token: Token,
 }
 
 impl<'a> RequestContext<'a> {
@@ -88,12 +88,12 @@ impl MioServer {
         // todo: check events.remove() and add() as way to go writable...
     }
 
-    fn request_ready(&mut self, ctx: RequestContext) {
+    fn request_ready(&mut self, ctx: &mut RequestContext) {
 
         let mut queue_response = false;
         match self.requests.get_mut(ctx.token) {
             Some(mut request) => {
-                request.ready(ctx.event_loop, ctx.token, ctx.events);
+                request.ready(ctx);
                 queue_response = request.has_reply();
             }
             None => warn!("{:?} not in requests", ctx.token),
@@ -182,8 +182,6 @@ impl MioServer {
             }
         };
     }
-
-
 
     fn accept(&mut self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
         let new_tok = self.receive(&self.udp_server)

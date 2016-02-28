@@ -1,11 +1,11 @@
 extern crate bytes;
-use mio::{Token, EventSet, Timeout, EventLoop, Handler, PollOpt};
+use mio::{Token, EventSet, Timeout, Handler, PollOpt};
 use mio::udp::UdpSocket;
 use std::net::SocketAddr;
 use dns::dns_entities::DnsMessage;
 use dns::dns_entities::DnsHeader;
 use request::request_base::{RequestBase, RequestState};
-
+use server_mio::RequestContext;
 //
 // Encapsulates the components of a dns request and response over Udp.
 //
@@ -45,42 +45,34 @@ impl UdpRequest {
         self.inner.timeout_handle = Some(timeout);
     }
 
-    fn register_upstream<T>(&mut self,
-                            event_loop: &mut EventLoop<T>,
-                            events: EventSet,
-                            token: Token)
-        where T: Handler
-    {
-        event_loop.register(&self.upstream_socket,
-                            token,
-                            events,
-                            PollOpt::edge() | PollOpt::oneshot())
-                  .unwrap_or_else(|e| error!("Failed to register upstream socket. {}", e));
-        // todo fail the reqest
+    fn register_upstream(&mut self, ctx: &mut RequestContext, events: EventSet) {
+
+        let poll_opt = PollOpt::edge() | PollOpt::oneshot();
+        ctx.event_loop
+           .register(&self.upstream_socket, ctx.token, events, poll_opt)
+           .unwrap_or_else(|e| {
+               self.error_with(format!("Failed to register upstream socket. {}", e))
+           });
     }
 
     pub fn on_timeout(&mut self, token: Token) {
         self.error_with(format!("{:?} timed out", token));
     }
 
-    fn set_timeout<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token)
-        where T: Handler<Timeout = Token>
-    {
-        match event_loop.timeout_ms(token, self.inner.params.timeout) {
+    fn set_timeout(&mut self, ctx: &mut RequestContext) {
+        match ctx.event_loop.timeout_ms(ctx.token, self.inner.params.timeout) {
             Ok(t) => self.set_timeout_handle(t),
-            Err(e) => error!("Failed to schedule timeout for {:?}. {:?}", token, e),
+            Err(e) => error!("Failed to schedule timeout for {:?}. {:?}", ctx.token, e),
         }
     }
 
-    pub fn clear_timeout<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token)
-        where T: Handler<Timeout = Token>
-    {
+    pub fn clear_timeout(&mut self, ctx: &mut RequestContext) {
         match self.inner.timeout_handle {
             Some(handle) => {
-                if event_loop.clear_timeout(handle) {
-                    debug!("Timeout cleared for {:?}", token);
+                if ctx.event_loop.clear_timeout(handle) {
+                    debug!("Timeout cleared for {:?}", ctx.token);
                 } else {
-                    warn!("Could not clear timeout for {:?}", token);
+                    warn!("Could not clear timeout for {:?}", ctx.token);
                 }
             }
             None => warn!("Timeout handle not present"),
@@ -88,52 +80,48 @@ impl UdpRequest {
 
     }
 
-    fn accept<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
-        where T: Handler<Timeout = Token>
-    {
-        debug_assert!(events.is_readable());
+    fn accept(&mut self, ctx: &mut RequestContext) {
+        debug_assert!(ctx.events.is_readable());
         self.set_state(RequestState::Accepted);
-        self.register_upstream(event_loop, EventSet::writable(), token);
+        self.register_upstream(ctx, EventSet::writable());
     }
 
-    fn forward<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
-        where T: Handler<Timeout = Token>
-    {
-        debug_assert!(events.is_writable());
+    fn forward(&mut self, ctx: &mut RequestContext) {
+        debug_assert!(ctx.events.is_writable());
         match self.upstream_socket
                   .send_to(&mut self.inner.query_buf.as_slice(),
                            &self.inner.params.upstream_addr) {
             Ok(Some(_)) => {
                 self.set_state(RequestState::Forwarded);
-                self.register_upstream(event_loop, EventSet::readable(), token);
+                self.register_upstream(ctx, EventSet::readable());
                 // TODO: No, don't just timeout forwarded requests, time out the whole request,
                 // be it cached, authorative or forwarded
-                self.set_timeout(event_loop, token);
+                self.set_timeout(ctx);
             }
-            Ok(None) => debug!("0 bytes sent. Staying in same state {:?}", token),
+            Ok(None) => debug!("0 bytes sent. Staying in same state {:?}", ctx.token),
             Err(e) => {
-                self.error_with(format!("Failed to write to upstream_socket. {:?} {:?}", e, token))
+                self.error_with(format!("Failed to write to upstream_socket. {:?} {:?}",
+                                        e,
+                                        ctx.token))
             }
         }
     }
 
-    fn receive<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
-        where T: Handler<Timeout = Token>
-    {
-        assert!(events.is_readable());
+    fn receive(&mut self, ctx: &mut RequestContext) {
+        assert!(ctx.events.is_readable());
         let mut buf = [0; 4096];
         match self.upstream_socket.recv_from(&mut buf) {
             Ok(Some((count, addr))) => {
                 debug!("Received {} bytes from {:?}", count, addr);
                 trace!("{:#?}", DnsMessage::parse(&buf));
                 self.buffer_response(&buf, count);
-                self.clear_timeout(event_loop, token);
+                self.clear_timeout(ctx);
                 self.set_state(RequestState::ResponseReceived);
             }
-            Ok(None) => debug!("No data received on upstream_socket. {:?}", token),
+            Ok(None) => debug!("No data received on upstream_socket. {:?}", ctx.token),
             Err(e) => {
-                self.error_with(format!("Receive failed on {:?}. {:?}", token, e));
-                self.clear_timeout(event_loop, token);
+                self.error_with(format!("Receive failed on {:?}. {:?}", ctx.token, e));
+                self.clear_timeout(ctx);
             }
         }
     }
@@ -145,14 +133,15 @@ impl UdpRequest {
         self.inner.response_buf = Some(response);
     }
 
-    pub fn ready<T>(&mut self, event_loop: &mut EventLoop<T>, token: Token, events: EventSet)
-        where T: Handler<Timeout = Token>
-    {
-        debug!("State {:?} {:?} {:?}", self.inner.state, token, events);
+    pub fn ready(&mut self, ctx: &mut RequestContext) {
+        debug!("State {:?} {:?} {:?}",
+               self.inner.state,
+               ctx.token,
+               ctx.events);
         match self.inner.state {
-            RequestState::New => self.accept(event_loop, token, events),
-            RequestState::Accepted => self.forward(event_loop, token, events),
-            RequestState::Forwarded => self.receive(event_loop, token, events),
+            RequestState::New => self.accept(ctx),
+            RequestState::Accepted => self.forward(ctx),
+            RequestState::Forwarded => self.receive(ctx),
             _ => debug!("Nothing to do for this state {:?}", self.inner.state),
         }
     }
