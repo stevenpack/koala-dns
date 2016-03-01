@@ -3,6 +3,7 @@ extern crate bytes;
 
 use mio::{Evented, Token, EventLoop, EventSet, PollOpt, Handler};
 use mio::udp::UdpSocket;
+use mio::tcp::TcpListener;
 use mio::util::Slab;
 use std::net::SocketAddr;
 use std::thread;
@@ -10,9 +11,11 @@ use std::thread::JoinHandle;
 use mio::Sender;
 use request::udp_request::UdpRequest;
 use request::request_base::{RequestBase, RequestParams};
+use servers::tcp_server::TcpServer;
 
 pub struct MioServer {
     udp_server: UdpSocket,
+    tcp_server: TcpListener,
     upstream_server: SocketAddr,
     timeout: u64,
     requests: Slab<UdpRequest>,
@@ -20,6 +23,7 @@ pub struct MioServer {
 }
 
 const UDP_SERVER_TOKEN: Token = Token(1);
+const TCP_SERVER_TOKEN: Token = Token(0);
 
 impl Handler for MioServer {
     type Timeout = Token;
@@ -31,6 +35,7 @@ impl Handler for MioServer {
 
         match token {
             UDP_SERVER_TOKEN => self.server_ready(ctx),
+            TCP_SERVER_TOKEN => debug!("TCP CONNECT"),
             _ => self.request_ready(&mut ctx),
         }
     }
@@ -209,16 +214,23 @@ impl MioServer {
                  timeout: u64)
                  -> (Sender<String>, JoinHandle<()>) {
         let udp_server = MioServer::bind_udp(address);
+        let tcp_server = TcpServer::bind_tcp(address);
 
         let mut event_loop = EventLoop::new().unwrap();
         let _ = event_loop.register(&udp_server,
                                     UDP_SERVER_TOKEN,
                                     EventSet::readable(),
                                     PollOpt::edge() | PollOpt::oneshot());
+
+        let _ = event_loop.register(&tcp_server,
+                                    TCP_SERVER_TOKEN,
+                                    EventSet::readable(),
+                                    PollOpt::edge() | PollOpt::oneshot());
         let tx = event_loop.channel();
         let max_connections = u16::max_value() as usize;
         let mut mio_server = MioServer {
             udp_server: udp_server,
+            tcp_server: tcp_server,
             upstream_server: upstream_server,
             timeout: timeout,
             requests: Slab::new_starting_at(Token(2), max_connections),
