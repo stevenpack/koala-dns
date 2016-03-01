@@ -24,6 +24,7 @@ pub struct RequestBase {
     pub params: RequestParams,
 }
 
+#[derive(Copy, Clone)]
 pub struct RequestParams {
     pub timeout: u64,
     pub upstream_addr: SocketAddr,
