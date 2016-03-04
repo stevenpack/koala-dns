@@ -16,14 +16,10 @@ use servers::tcp::TcpServer;
 
 pub struct MioServer {
     udp_server: UdpServer,
-    tcp_server: TcpListener,
+    tcp_server: TcpServer,
     upstream_server: SocketAddr,
     timeout: u64,
-    responses: Vec<UdpRequest>,
 }
-
-const UDP_SERVER_TOKEN: Token = Token(1);
-const TCP_SERVER_TOKEN: Token = Token(0);
 
 impl Handler for MioServer {
     type Timeout = Token;
@@ -34,9 +30,9 @@ impl Handler for MioServer {
         let mut ctx = RequestContext::from(event_loop, events, token);
 
         match token {
-            UDP_SERVER_TOKEN => self.server_ready(ctx),
-            TCP_SERVER_TOKEN => debug!("TCP CONNECT"),
-            _ => self.request_ready(&mut ctx),
+            UdpServer::UDP_SERVER_TOKEN => self.udp_server.server_ready(&mut ctx),
+            TcpServer::TCP_SERVER_TOKEN => debug!("TCP CONNECT"),
+            _ => self.udp_server.request_ready(&mut ctx),
         }
     }
 
@@ -48,7 +44,7 @@ impl Handler for MioServer {
             Some(mut request) => request.inner.on_timeout(token),
             None => warn!("Timed out request wasn't present. {:?}", token),
         }
-        self.request_ready(&mut ctx);
+        self.udp_server.request_ready(&mut ctx);
     }
 
     fn notify(&mut self, event_loop: &mut EventLoop<Self>, msg: String) {
@@ -67,7 +63,7 @@ pub struct RequestContext<'a> {
 }
 
 impl<'a> RequestContext<'a> {
-    fn from(event_loop: &mut EventLoop<MioServer>,
+    pub fn from(event_loop: &mut EventLoop<MioServer>,
             events: EventSet,
             token: Token)
             -> RequestContext {
@@ -80,77 +76,16 @@ impl<'a> RequestContext<'a> {
 }
 
 impl MioServer {
-    fn server_ready(&mut self, ctx: RequestContext) {
-        if ctx.events.is_readable() {
-            let tok = self.udp_server.accept(&ctx);
-            if tok.is_some() {
-                self.ready(ctx.event_loop, tok.unwrap(), ctx.events);
-            }
-        }
-        if ctx.events.is_writable() {
-            self.send_reply();
-        }
-        // We are always listening for new requests. The server socket will be regregistered
-        // as writable if there are responses to write
-        self.reregister_server(ctx.event_loop, EventSet::readable());
-    }
 
-    fn request_ready(&mut self, ctx: &mut RequestContext) {
 
-        let mut queue_response = false;
-        match self.udp_server.requests.get_mut(ctx.token) {
-            Some(mut request) => {
-                request.ready(ctx);
-                queue_response = request.inner.has_reply();
-            }
-            None => warn!("{:?} not in requests", ctx.token),
-        }
-        if queue_response {
-            self.queue_response(ctx.token);
-            self.reregister_server(ctx.event_loop, EventSet::readable() | EventSet::writable());
-        }
-    }
 
-    fn queue_response(&mut self, token: Token) {
-        match self.remove_request(token) {
-            Some(request) => {
-                self.responses.push(request);
-                debug!("Added {:?} to pending replies", token);
-            }
-            None => error!("Failed to remove request and queue response. {:?}", token),
-        }
-    }
-
-    fn reregister_server(&self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
-        debug!("Re-registered: {:?} with {:?}", UDP_SERVER_TOKEN, events);
-        let _ = event_loop.reregister(&self.udp_server.server_socket,
-                                      UDP_SERVER_TOKEN,
+    pub fn reregister_server(event_loop: &mut EventLoop<MioServer>, events: EventSet, token: Token, socket: &Evented) {
+        debug!("Re-registered: {:?} with {:?}", token, events);
+        let _ = event_loop.reregister(socket,
+                                      token,
                                       events,
                                       PollOpt::edge() | PollOpt::oneshot());
     }
-
-    fn remove_request(&mut self, token: Token) -> Option<UdpRequest> {
-        match self.udp_server.requests.remove(token) {
-            Some(request) => {
-                debug!("Removed {:?} from pending requests.", token);
-                return Some(request);
-            }
-            None => warn!("No request found {:?}", token),
-        }
-        return None;
-    }
-
-    fn send_reply(&mut self) {
-        debug!("There are {} responses to send", self.responses.len());
-        match self.responses.pop() {
-            Some(reply) => reply.send(&self.udp_server.server_socket),
-            None => warn!("Nothing to send."),
-        }
-    }
-
-
-
-
 
     pub fn start(address: SocketAddr,
                  upstream_server: SocketAddr,
@@ -159,23 +94,23 @@ impl MioServer {
 
         let max_connections = u16::max_value() as usize;
 
-        let udp_socket = UdpServer::bind_udp(address);
+
         let params = RequestParams {
             timeout: timeout,
             upstream_addr: upstream_server,
         };
 
-        let udp_server = UdpServer::new(udp_socket, Slab::new_starting_at(Token(2), max_connections),params );
-        let tcp_server = TcpServer::bind_tcp(address);
+        let udp_server = UdpServer::new(address, Slab::new_starting_at(Token(2), max_connections),params );
+        let tcp_server = TcpServer::new(address);
 
         let mut event_loop = EventLoop::new().unwrap();
         let _ = event_loop.register(&udp_server.server_socket,
-                                    UDP_SERVER_TOKEN,
+                                    UdpServer::UDP_SERVER_TOKEN,
                                     EventSet::readable(),
                                     PollOpt::edge() | PollOpt::oneshot());
 
-        let _ = event_loop.register(&tcp_server,
-                                    TCP_SERVER_TOKEN,
+        let _ = event_loop.register(&tcp_server.server_socket,
+                                    TcpServer::TCP_SERVER_TOKEN,
                                     EventSet::readable(),
                                     PollOpt::edge() | PollOpt::oneshot());
         let tx = event_loop.channel();
@@ -184,8 +119,7 @@ impl MioServer {
             udp_server: udp_server,
             tcp_server: tcp_server,
             upstream_server: upstream_server,
-            timeout: timeout,
-            responses: Vec::<UdpRequest>::new(),
+            timeout: timeout
         };
         let run_handle = thread::Builder::new()
                              .name("dns_srv_net_io".to_string())

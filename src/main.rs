@@ -1,4 +1,5 @@
 #![feature(test)]
+#![feature(associated_consts)]
 extern crate getopts;
 extern crate mio;
 #[macro_use]
