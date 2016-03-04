@@ -4,7 +4,9 @@ use mio::tcp::TcpListener;
 use server_mio::{MioServer,RequestContext};
 
 pub struct TcpServer {
-    pub server_socket: TcpListener
+    pub server_socket: TcpListener,
+    // requests: Slab<TcpRequest>,
+    // responses: Vec<TcpRequest>
 }
 impl TcpServer {
     pub const TCP_SERVER_TOKEN: Token = Token(0);
@@ -22,7 +24,11 @@ impl TcpServer {
         return server;
     }
 
-    fn request_ready(&mut self, ctx: &mut RequestContext) -> bool {
+    pub fn request_ready(&mut self, ctx: &mut RequestContext) -> bool {
+        false
+    }
+
+    pub fn owns(&self, token: Token) -> bool {
         false
     }
 }
