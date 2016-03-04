@@ -3,8 +3,8 @@ use mio::{EventLoop, Token, EventSet};
 use mio::util::Slab;
 use mio::udp::UdpSocket;
 use server_mio::{MioServer,RequestContext};
-use request::request_base::{RequestBase, RequestParams};
-use request::udp_request::UdpRequest;
+use request::base::{RequestBase, RequestParams};
+use request::udp::UdpRequest;
 
 pub struct UdpServer {
     pub server_socket: UdpSocket,

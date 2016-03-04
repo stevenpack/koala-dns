@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::thread;
 use std::thread::JoinHandle;
 use mio::Sender;
-use request::request_base::{RequestParams};
+use request::base::{RequestParams};
 use servers::udp::UdpServer;
 use servers::tcp::TcpServer;
 
@@ -103,7 +103,7 @@ impl MioServer {
         };
 
         let udp_server = UdpServer::new(address, start_token, max_connections, params);
-        let tcp_server = TcpServer::new(address);
+        let tcp_server = TcpServer::new(address, start_token, max_connections, params);
 
         let mut event_loop = EventLoop::new().unwrap();
         let _ = event_loop.register(&udp_server.server_socket,

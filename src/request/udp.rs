@@ -3,7 +3,7 @@ use mio::EventSet;
 use mio::udp::UdpSocket;
 use std::net::SocketAddr;
 use dns::dns_entities::DnsMessage;
-use request::request_base::{RequestBase, RequestState};
+use request::base::{RequestBase, RequestState};
 use server_mio::RequestContext;
 //
 // Encapsulates the components of a dns request and response over Udp.
