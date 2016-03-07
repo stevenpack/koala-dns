@@ -27,16 +27,10 @@ impl Handler for MioServer {
 
         match token {
             UdpServer::UDP_SERVER_TOKEN => self.udp_server.server_ready(&mut ctx),
-            TcpServer::TCP_SERVER_TOKEN => debug!("TCP CONNECT"),
-            _ =>
-            {
-                if self.udp_server.owns(ctx.token) {
-                    self.udp_server.request_ready(&mut ctx)
-                }
-                if self.tcp_server.owns(ctx.token) {
-                    self.tcp_server.request_ready(&mut ctx);
-                }
-            },
+            TcpServer::TCP_SERVER_TOKEN => self.tcp_server.server_ready(&mut ctx),
+            _ if self.udp_server.owns(ctx.token) => self.udp_server.request_ready(&mut ctx),
+            _ if self.tcp_server.owns(ctx.token) => self.tcp_server.request_ready(&mut ctx),
+            unknown_tok => error!("Unknown token {:?}", unknown_tok)
         }
     }
 

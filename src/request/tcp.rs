@@ -39,4 +39,19 @@ impl TcpRequest {
         //     Err(err) => error!("Failed to accept tcp connection {}", err),
         // }
     }
+
+    pub fn ready(&mut self, ctx: &mut RequestContext) {
+        debug!("State {:?} {:?} {:?}",
+               self.inner.state,
+               ctx.token,
+               ctx.events);
+        // todo: authorative? cached? forward?
+        // match self.inner.state {
+        //     RequestState::New => self.accept(ctx),
+        //     RequestState::Accepted => self.forward(ctx),
+        //     RequestState::Forwarded => self.receive(ctx),
+        //     _ => debug!("Nothing to do for this state {:?}", self.inner.state),
+        // }
+    }
+
 }
