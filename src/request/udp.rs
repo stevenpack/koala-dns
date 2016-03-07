@@ -24,7 +24,11 @@ impl IRequest<UdpRequest> for UdpRequest {
         };
     }
 
-    fn base(&mut self) -> &mut RequestBase {
+    fn get(&self) -> &RequestBase {
+        &self.inner
+    }
+
+    fn get_mut(&mut self) -> &mut RequestBase {
         &mut self.inner
     }
 }
@@ -32,15 +36,11 @@ impl IRequest<UdpRequest> for UdpRequest {
 impl UdpRequest {
 
     fn accept(&mut self, ctx: &mut RequestContext) {
-        debug_assert!(ctx.events.is_readable());
-        self.inner.set_state(RequestState::Accepted);
-        //todo: if need to forward...
-
         self.upstream_socket = UdpSocket::v4().ok();
         debug!("upstream created");
         match self.upstream_socket {
-            Some(ref sock) => self.inner.register_upstream(ctx, EventSet::writable(), sock),
-            None => error!("No upstream socket")
+            Some(ref sock) => self.inner.accept(ctx, sock),
+            None => {}
         }
     }
 

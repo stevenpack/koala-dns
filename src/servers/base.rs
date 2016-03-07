@@ -1,9 +1,10 @@
-use mio::{EventLoop, EventSet, Token, TryRead, PollOpt, Evented};
+use mio::{EventLoop, EventSet, Token, PollOpt, Evented};
 use mio::util::{Slab};
 use server_mio::{MioServer,RequestContext};
 use request::base::*;
 use std::net::SocketAddr;
 
+//ServerMixin
 pub struct ServerBase<T> where T : IRequest<T> {
     pub requests: Slab<T>,
     pub responses: Vec<T>,
@@ -47,7 +48,7 @@ impl<T> ServerBase<T> where T: IRequest<T> {
     }
 
     pub fn timeout(&mut self, ctx: &mut RequestContext) {
-        self.requests.get_mut(ctx.token).unwrap().base().on_timeout(ctx.token);
+        self.requests.get_mut(ctx.token).unwrap().get_mut().on_timeout(ctx.token);
     }
 
     // fn register(&self,

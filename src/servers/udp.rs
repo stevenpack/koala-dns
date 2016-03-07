@@ -3,7 +3,7 @@ use mio::{EventLoop, Token, EventSet};
 use mio::util::Slab;
 use mio::udp::UdpSocket;
 use server_mio::{MioServer,RequestContext};
-use request::base::{RequestBase, RequestParams};
+use request::base::{RequestParams};
 use request::udp::UdpRequest;
 use servers::base::*;
 
@@ -32,7 +32,7 @@ impl UdpServer {
                           .unwrap_or_else(|e| panic!("Failed to bind udp socket. Error was {}", e));
         return udp_socket;
     }
-    pub fn accept(&mut self, ctx: &RequestContext) -> Option<UdpRequest> {
+    pub fn accept(&mut self) -> Option<UdpRequest> {
         return self.receive(&self.server_socket)
             .and_then(|(addr, buf)| Some(self.base.build_request(addr, buf.as_slice())));
     }
@@ -60,7 +60,7 @@ impl UdpServer {
 
     pub fn server_ready(&mut self, ctx: &mut RequestContext)  {
         if ctx.events.is_readable() {
-            self.accept(&ctx)
+            self.accept()
                 .and_then( |req| self.base.requests.insert(req).ok())
                 .and_then( |tok| Some(RequestContext::new(ctx.event_loop, EventSet::readable(), tok)))
                 .and_then( |req_ctx| Some((self.base.requests.get_mut(req_ctx.token), req_ctx)))

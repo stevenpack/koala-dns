@@ -6,7 +6,8 @@ use dns::dns_entities::DnsHeader;
 
 pub trait IRequest<T> {
     fn new_with(client_addr: SocketAddr, request: RequestBase) -> T;
-    fn base(&mut self) -> &mut RequestBase;
+    fn get(&self) -> &RequestBase;
+    fn get_mut(&mut self) -> &mut RequestBase;
 }
 
 #[derive(Debug)]
@@ -19,13 +20,12 @@ pub enum RequestState {
     Error,
 }
 
+//RequestMixin
 pub struct RequestBase {
     pub state: RequestState,
     pub query_buf: Vec<u8>,
     pub response_buf: Option<Vec<u8>>,
     pub timeout_handle: Option<Timeout>,
-
-    // Separate? This is only required for upstream
     pub params: RequestParams,
 }
 
@@ -46,6 +46,7 @@ impl RequestBase {
             params: params,
         };
     }
+
 
     pub fn set_state(&mut self, state: RequestState) {
         debug!("{:?} -> {:?}", self.state, state);
@@ -112,5 +113,13 @@ impl RequestBase {
 
     pub fn has_reply(&self) -> bool {
         return self.response_buf.is_some();
+    }
+
+    pub fn accept(&mut self, ctx: &mut RequestContext, sock: &Evented) {
+        debug_assert!(ctx.events.is_readable());
+        self.set_state(RequestState::Accepted);
+        //todo: if need to forward...
+        self.register_upstream(ctx, EventSet::writable(), sock);
+        debug!("Accepted and registered upstream");
     }
 }

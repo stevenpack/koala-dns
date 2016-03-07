@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
+use server_mio::{MioServer,RequestContext};
 use mio::{EventLoop, EventSet, Token, TryRead};
 use mio::util::Slab;
 use mio::tcp::{TcpStream,TcpListener};
-use server_mio::{MioServer,RequestContext};
 use std::collections::HashMap;
 use request::base::*;
 use request::tcp::TcpRequest;
@@ -10,11 +10,8 @@ use servers::base::{ServerBase};
 
 pub struct TcpServer {
     pub server_socket: TcpListener,
-    //requests: Slab<TcpRequest>,
-    //responses: Vec<TcpRequest>,
     pending: HashMap<Token, TcpStream>,
     accepted: HashMap<Token, TcpStream>,
-    //params: RequestParams,
     pub base: ServerBase<TcpRequest>
 }
 
@@ -55,12 +52,12 @@ impl TcpServer {
         //         .and_then( |req_ctx| Some((self.requests.get_mut(req_ctx.token), req_ctx)))
         //         .and_then( |(req, mut req_ctx)| Some(req.unwrap().ready(&mut req_ctx)));
         // }
-        // if ctx.events.is_writable() {
-        //     self.send_reply();
-        // }
+        if ctx.events.is_writable() {
+            self.send_reply();
+        }
         // We are always listening for new requests. The server socket will be regregistered
         // as writable if there are responses to write
-        //self.reregister_server(ctx.event_loop, EventSet::readable());
+        self.reregister_server(ctx.event_loop, EventSet::readable());
     }
 
     //TODO: trait
@@ -77,8 +74,12 @@ impl TcpServer {
         }
         if queue_response {
             self.base.queue_response(ctx.token);
-            //self.reregister_server(ctx.event_loop, EventSet::readable() | EventSet::writable());
+            self.reregister_server(ctx.event_loop, EventSet::readable() | EventSet::writable());
         }
+    }
+
+    fn reregister_server(&self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
+        MioServer::reregister_server(event_loop, events, TcpServer::TCP_SERVER_TOKEN, &self.server_socket);
     }
 
     //TODO: trait
@@ -91,7 +92,7 @@ impl TcpServer {
     pub fn accept(&mut self, ctx: &mut RequestContext) {
         match self.server_socket.accept() {
             Ok(Some((stream, addr))) => {
-                    debug!("Accepted tcp request from {:?}", addr);
+                    debug!("Accepted tcp request from {:?}. Now pending...", addr);
                     let req = self.base.build_request(addr, Vec::<u8>::new().as_slice());
                     let tok = self.base.requests.insert_with(|tok| req).unwrap();
                     self.base.register(ctx.event_loop, &stream, EventSet::readable(), tok, true);
@@ -112,6 +113,9 @@ impl TcpServer {
                 match self.base.requests.get_mut(ctx.token) {
                     Some(request) => {
                         request.inner.query_buf = buf;
+
+                        //re-register so the pending actually gets accepted
+                        self.base.register(ctx.event_loop
                     }
                     None => error!("Request {:?} not found", ctx.token),
                 }
@@ -138,5 +142,12 @@ impl TcpServer {
         // let msg = DnsMessage::parse(&b3);
         // debug!("{:?}", msg);
         return b3.clone();
+    }
+
+    fn send_reply(&mut self) {
+        debug!("There are {} responses to send", self.base.responses.len());
+        let tok = Token(999);
+        let mut stream = self.accepted.get_mut(&tok).unwrap();
+        self.base.responses.pop().and_then(|reply| Some(reply.send(&mut stream)));
     }
 }
