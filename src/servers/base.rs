@@ -1,9 +1,24 @@
 use mio::{EventLoop, EventSet, Token, TryRead, PollOpt, Evented};
+use mio::util::{Slab};
 use server_mio::{MioServer,RequestContext};
-pub struct ServerBase;
+use request::base::*;
+use std::net::SocketAddr;
 
-impl ServerBase {
-    pub fn register(event_loop: &mut EventLoop<MioServer>,
+pub struct ServerBase<T> where T : IRequest<T> {
+    pub requests: Slab<T>,
+    pub responses: Vec<T>,
+    pub params: RequestParams
+}
+
+impl<T> ServerBase<T> where T: IRequest<T> {
+    pub fn new(requests: Slab<T>, responses: Vec<T>, params: RequestParams) -> ServerBase<T> {
+        ServerBase {
+            requests: requests,
+            responses: responses,
+            params: params
+        }
+    }
+    pub fn register(&self, event_loop: &mut EventLoop<MioServer>,
                 socket: &Evented,
                 events: EventSet,
                 token: Token,
@@ -18,16 +33,33 @@ impl ServerBase {
             debug!("Registered {:?} {:?} {:?}", token, events, reg);
         }
     }
-}
 
-pub trait Server {
-    //fn get(&self) -> ServerBase;
-    fn register(&self,
-            event_loop: &mut EventLoop<MioServer>,
-            socket: &Evented,
-            events: EventSet,
-            token: Token,
-            reregister: bool) {
-        ServerBase::register(event_loop, socket, events, token, reregister);
+    pub fn queue_response(&mut self, token: Token) {
+        self.requests.remove(token).and_then(|req| Some(self.responses.push(req)));
+    }
+
+    pub fn build_request(&mut self, addr: SocketAddr, bytes: &[u8]) -> T {
+        let mut buf = Vec::<u8>::with_capacity(bytes.len());
+        buf.extend_from_slice(bytes);
+        let request = RequestBase::new(buf, self.params);
+
+        T::new_with(addr, request)
+    }
+
+    pub fn timeout(&mut self, ctx: &mut RequestContext) {
+        self.requests.get_mut(ctx.token).unwrap().base().on_timeout(ctx.token);
+    }
+
+    // fn register(&self,
+    //         event_loop: &mut EventLoop<MioServer>,
+    //         socket: &Evented,
+    //         events: EventSet,
+    //         token: Token,
+    //         reregister: bool) {
+    //     ServerBase::<T>::register(event_loop, socket, events, token, reregister);
+    // }
+
+    pub fn owns(&self, token: Token) -> bool {
+        self.requests.contains(token)
     }
 }

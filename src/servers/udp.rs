@@ -5,12 +5,11 @@ use mio::udp::UdpSocket;
 use server_mio::{MioServer,RequestContext};
 use request::base::{RequestBase, RequestParams};
 use request::udp::UdpRequest;
+use servers::base::*;
 
 pub struct UdpServer {
     pub server_socket: UdpSocket,
-    pub requests: Slab<UdpRequest>,
-    responses: Vec<UdpRequest>,
-    params: RequestParams
+    pub base: ServerBase<UdpRequest>
 }
 
 impl UdpServer {
@@ -18,11 +17,10 @@ impl UdpServer {
     pub fn new(addr: SocketAddr, start_token: usize, max_connections: usize, params: RequestParams) -> UdpServer {
         let server_socket = Self::bind_udp(addr);
         let requests = Slab::new_starting_at(Token(start_token), max_connections);
+        let responses = Vec::<UdpRequest>::new();
         UdpServer {
             server_socket: server_socket,
-            params: params,
-            requests: requests,
-            responses: Vec::<UdpRequest>::new()
+            base: ServerBase::<UdpRequest>::new(requests, responses, params)
         }
     }
 
@@ -34,14 +32,9 @@ impl UdpServer {
                           .unwrap_or_else(|e| panic!("Failed to bind udp socket. Error was {}", e));
         return udp_socket;
     }
-
-    pub fn owns(&self, token: Token) -> bool {
-        self.requests.contains(token)
-    }
-
     pub fn accept(&mut self, ctx: &RequestContext) -> Option<UdpRequest> {
         return self.receive(&self.server_socket)
-            .and_then(|(addr, buf)| Some(self.build_request(addr, buf.as_slice())));
+            .and_then(|(addr, buf)| Some(self.base.build_request(addr, buf.as_slice())));
     }
 
     fn receive(&self, socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
@@ -68,9 +61,9 @@ impl UdpServer {
     pub fn server_ready(&mut self, ctx: &mut RequestContext)  {
         if ctx.events.is_readable() {
             self.accept(&ctx)
-                .and_then( |req| self.requests.insert(req).ok())
+                .and_then( |req| self.base.requests.insert(req).ok())
                 .and_then( |tok| Some(RequestContext::new(ctx.event_loop, EventSet::readable(), tok)))
-                .and_then( |req_ctx| Some((self.requests.get_mut(req_ctx.token), req_ctx)))
+                .and_then( |req_ctx| Some((self.base.requests.get_mut(req_ctx.token), req_ctx)))
                 .and_then( |(req, mut req_ctx)| Some(req.unwrap().ready(&mut req_ctx)));
         }
         if ctx.events.is_writable() {
@@ -83,7 +76,7 @@ impl UdpServer {
 
     pub fn request_ready(&mut self, ctx: &mut RequestContext) {
         let mut queue_response = false;
-        match self.requests.get_mut(ctx.token) {
+        match self.base.requests.get_mut(ctx.token) {
             Some(mut request) => {
                 request.ready(ctx);
                 queue_response = request.inner.has_reply();
@@ -91,26 +84,14 @@ impl UdpServer {
             None => {/* must be a tcp request*/},
         }
         if queue_response {
-            self.queue_response(ctx.token);
+            self.base.queue_response(ctx.token);
             self.reregister_server(ctx.event_loop, EventSet::readable() | EventSet::writable());
         }
     }
 
-    fn queue_response(&mut self, token: Token) {
-        self.requests.remove(token).and_then(|req| Some(self.responses.push(req)));
-    }
-
     fn send_reply(&mut self) {
-        debug!("There are {} responses to send", self.responses.len());
-        self.responses.pop().and_then(|reply| Some(reply.send(&self.server_socket)));
-    }
-
-    fn build_request(&mut self, addr: SocketAddr, bytes: &[u8]) -> UdpRequest {
-        let mut buf = Vec::<u8>::with_capacity(bytes.len());
-        buf.extend_from_slice(bytes);
-        let request = RequestBase::new(buf, self.params);
-
-        UdpRequest::new(addr, request)
+        debug!("There are {} responses to send", self.base.responses.len());
+        self.base.responses.pop().and_then(|reply| Some(reply.send(&self.server_socket)));
     }
 
     fn reregister_server(&self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {

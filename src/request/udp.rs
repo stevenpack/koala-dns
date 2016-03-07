@@ -5,6 +5,7 @@ use std::net::SocketAddr;
 use dns::dns_entities::DnsMessage;
 use request::base::{RequestBase, RequestState};
 use server_mio::RequestContext;
+use request::base::IRequest;
 //
 // Encapsulates the components of a dns request and response over Udp.
 //
@@ -14,14 +15,21 @@ pub struct UdpRequest {
     pub inner: RequestBase,
 }
 
-impl UdpRequest {
-    pub fn new(client_addr: SocketAddr, request: RequestBase) -> UdpRequest {
+impl IRequest<UdpRequest> for UdpRequest {
+    fn new_with(client_addr: SocketAddr, request: RequestBase) -> UdpRequest {
         return UdpRequest {
             upstream_socket: None,
             client_addr: client_addr,
             inner: request,
         };
     }
+
+    fn base(&mut self) -> &mut RequestBase {
+        &mut self.inner
+    }
+}
+
+impl UdpRequest {
 
     fn accept(&mut self, ctx: &mut RequestContext) {
         debug_assert!(ctx.events.is_readable());

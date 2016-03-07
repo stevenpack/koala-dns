@@ -28,8 +28,8 @@ impl Handler for MioServer {
         match token {
             UdpServer::UDP_SERVER_TOKEN => self.udp_server.server_ready(&mut ctx),
             TcpServer::TCP_SERVER_TOKEN => self.tcp_server.server_ready(&mut ctx),
-            _ if self.udp_server.owns(ctx.token) => self.udp_server.request_ready(&mut ctx),
-            _ if self.tcp_server.owns(ctx.token) => self.tcp_server.request_ready(&mut ctx),
+            udp_tok if self.udp_server.base.owns(udp_tok) => self.udp_server.request_ready(&mut ctx),
+            tcp_tok if self.tcp_server.base.owns(tcp_tok) => self.tcp_server.request_ready(&mut ctx),
             unknown_tok => error!("Unknown token {:?}", unknown_tok)
         }
     }
@@ -38,11 +38,12 @@ impl Handler for MioServer {
     fn timeout(&mut self, event_loop: &mut EventLoop<Self>, token: Self::Timeout) {
         info!("Got timeout: {:?}", token);
         let mut ctx = RequestContext::new(event_loop, EventSet::none(), token);
-        match self.udp_server.requests.get_mut(token) {
-            Some(mut request) => request.inner.on_timeout(token),
-            None => warn!("Timed out request wasn't present. {:?}", token),
+        match token {
+            udp_tok if self.udp_server.base.owns(udp_tok) => self.udp_server.base.timeout(&mut ctx),
+            tcp_tok if self.tcp_server.base.owns(tcp_tok) => self.tcp_server.base.timeout(&mut ctx),
+            unknown_tok => error!("Unknown token {:?}", unknown_tok)
         }
-        self.udp_server.request_ready(&mut ctx);
+        self.ready(ctx.event_loop, token, EventSet::none());
     }
 
     fn notify(&mut self, event_loop: &mut EventLoop<Self>, msg: String) {

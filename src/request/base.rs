@@ -4,6 +4,11 @@ use server_mio::RequestContext;
 use dns::dns_entities::DnsMessage;
 use dns::dns_entities::DnsHeader;
 
+pub trait IRequest<T> {
+    fn new_with(client_addr: SocketAddr, request: RequestBase) -> T;
+    fn base(&mut self) -> &mut RequestBase;
+}
+
 #[derive(Debug)]
 #[derive(PartialEq)]
 pub enum RequestState {
