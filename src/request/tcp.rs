@@ -63,18 +63,22 @@ impl TcpRequest {
         //TODO: error on fail to create upstream socket
         match self.upstream_socket {
             Some(ref mut sock) => {
-                match sock.write(&mut self.inner.query_buf.as_slice()) {
+                // prefix with length
+            let len = self.inner.query_buf.len() as u8;
+            self.inner.query_buf.insert(0, len);
+            self.inner.query_buf.insert(0, 0);
+
+            info!("{:?} bytes to send", self.inner.query_buf.len());
+                match sock.write_all(&mut self.inner.query_buf.as_slice()) {
                       Ok(count) => {
-                          if count > 0 {
-                              //TODO base.on_forwarded
-                              self.inner.set_state(RequestState::Forwarded);
-                              self.inner.register_upstream(ctx, EventSet::readable(), sock);
-                              // TODO: No, don't just timeout forwarded requests, time out the whole request,
-                              // be it cached, authorative or forwarded
-                              self.inner.set_timeout(ctx);
-                          } else {
-                              warn!("0 bytes sent. Staying in same state {:?}", ctx.token);
-                          }
+                          debug!("Sent {:?} bytes", count);
+                          //TODO base.on_forwarded
+                          self.inner.set_state(RequestState::Forwarded);
+                          self.inner.register_upstream(ctx, EventSet::readable(), sock);
+                          // TODO: No, don't just timeout forwarded requests, time out the whole request,
+                          // be it cached, authorative or forwarded
+                          self.inner.set_timeout(ctx);
+                         
                       }
                       Err(e) => {
                           //todo: base.on_forward_error
@@ -84,7 +88,7 @@ impl TcpRequest {
                       }
                   }
             },
-            None => {}
+            None => error!("tcp upstream socket")
         }
     }
 

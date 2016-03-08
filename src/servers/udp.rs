@@ -32,9 +32,9 @@ impl UdpServer {
                           .unwrap_or_else(|e| panic!("Failed to bind udp socket. Error was {}", e));
         return udp_socket;
     }
-    pub fn accept(&mut self) -> Option<UdpRequest> {
+    pub fn accept(&mut self, token: Token) -> Option<UdpRequest> {
         return self.receive(&self.server_socket)
-            .and_then(|(addr, buf)| Some(self.base.build_request(addr, buf.as_slice())));
+            .and_then(|(addr, buf)| Some(self.base.build_request(token, addr, buf.as_slice())));
     }
 
     fn receive(&self, socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
@@ -60,7 +60,7 @@ impl UdpServer {
 
     pub fn server_ready(&mut self, ctx: &mut RequestContext)  {
         if ctx.events.is_readable() {
-            self.accept()
+            self.accept(ctx.token)
                 .and_then( |req| self.base.requests.insert(req).ok())
                 .and_then( |tok| Some(RequestContext::new(ctx.event_loop, EventSet::readable(), tok)))
                 .and_then( |req_ctx| Some((self.base.requests.get_mut(req_ctx.token), req_ctx)))

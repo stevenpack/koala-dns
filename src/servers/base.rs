@@ -37,12 +37,13 @@ impl<T> ServerBase<T> where T: IRequest<T> {
 
     pub fn queue_response(&mut self, token: Token) {
         self.requests.remove(token).and_then(|req| Some(self.responses.push(req)));
+        debug!("queued {:?}", token);
     }
 
-    pub fn build_request(&mut self, addr: SocketAddr, bytes: &[u8]) -> T {
+    pub fn build_request(&mut self, token: Token, addr: SocketAddr, bytes: &[u8]) -> T {
         let mut buf = Vec::<u8>::with_capacity(bytes.len());
         buf.extend_from_slice(bytes);
-        let request = RequestBase::new(buf, self.params);
+        let request = RequestBase::new(token, buf, self.params);
 
         T::new_with(addr, request)
     }

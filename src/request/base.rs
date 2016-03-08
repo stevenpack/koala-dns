@@ -22,6 +22,7 @@ pub enum RequestState {
 
 //RequestMixin
 pub struct RequestBase {
+    pub token: Token,
     pub state: RequestState,
     pub query_buf: Vec<u8>,
     pub response_buf: Option<Vec<u8>>,
@@ -37,8 +38,9 @@ pub struct RequestParams {
 }
 
 impl RequestBase {
-    pub fn new(query_buf: Vec<u8>, params: RequestParams) -> RequestBase {
+    pub fn new(token: Token, query_buf: Vec<u8>, params: RequestParams) -> RequestBase {
         return RequestBase {
+            token: token,
             state: RequestState::New,
             query_buf: query_buf,
             response_buf: None,

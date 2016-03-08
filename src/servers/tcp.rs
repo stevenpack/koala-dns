@@ -38,13 +38,9 @@ impl TcpServer {
 
     pub fn server_ready(&mut self, ctx: &mut RequestContext)  {
 
-
+        debug!("tcp server_ready {:?}", ctx.events);
         if ctx.events.is_readable() {
-            if self.pending.contains_key(&ctx.token) {
-                self.accept_pending(ctx)
-            } else {
-                self.accept(ctx);
-            }
+            self.accept(ctx);
         }
         //     self.accept(&ctx)
         //         .and_then( |req| self.requests.insert(req).ok())
@@ -52,9 +48,9 @@ impl TcpServer {
         //         .and_then( |req_ctx| Some((self.requests.get_mut(req_ctx.token), req_ctx)))
         //         .and_then( |(req, mut req_ctx)| Some(req.unwrap().ready(&mut req_ctx)));
         // }
-        if ctx.events.is_writable() {
-            self.send_reply();
-        }
+        // if ctx.events.is_writable() {
+        //     self.send_reply(ctx.token);
+        // }
         // We are always listening for new requests. The server socket will be regregistered
         // as writable if there are responses to write
         self.reregister_server(ctx.event_loop, EventSet::readable());
@@ -64,17 +60,23 @@ impl TcpServer {
     pub fn request_ready(&mut self, ctx: &mut RequestContext) {
         debug!("request ready {:?}", ctx.token);
 
-        let mut queue_response = false;
-        match self.base.requests.get_mut(ctx.token) {
-            Some(mut request) => {
-                request.ready(ctx);
-                queue_response = request.inner.has_reply();
+        if self.pending.contains_key(&ctx.token) {
+            self.accept_pending(ctx)
+        } else {
+            let mut queue_response = false;
+            match self.base.requests.get_mut(ctx.token) {
+                Some(mut request) => {
+                    request.ready(ctx);
+                    queue_response = request.inner.has_reply();
+                }
+                None => {/* must be a tcp request*/},
             }
-            None => {/* must be a tcp request*/},
-        }
-        if queue_response {
-            self.base.queue_response(ctx.token);
-            self.reregister_server(ctx.event_loop, EventSet::readable() | EventSet::writable());
+            if queue_response {
+                self.base.queue_response(ctx.token);
+                //self.reregister_server(ctx.event_loop, EventSet::readable() | EventSet::writable());
+                self.send_replies();
+            }
+
         }
     }
 
@@ -93,10 +95,13 @@ impl TcpServer {
         match self.server_socket.accept() {
             Ok(Some((stream, addr))) => {
                     debug!("Accepted tcp request from {:?}. Now pending...", addr);
-                    let req = self.base.build_request(addr, Vec::<u8>::new().as_slice());
-                    let tok = self.base.requests.insert_with(|tok| req).unwrap();
-                    self.base.register(ctx.event_loop, &stream, EventSet::readable(), tok, true);
-                    self.pending.insert(tok, stream);
+                    let mut req = self.base.build_request(ctx.token, addr, Vec::<u8>::new().as_slice());
+                    let token = self.base.requests.insert_with(|_| req).unwrap();
+                    //HACK: creating with the server token, then updating smells
+                    self.base.requests.get_mut(token).unwrap().inner.token = token;
+                    debug!("token is {:?} ", token);
+                    self.base.register(ctx.event_loop, &stream, EventSet::readable(), token, false);
+                    self.pending.insert(token, stream);
             }
             Ok(None) => debug!("Socket would block. Waiting..."),
             Err(err) => error!("Failed to accept tcp connection {}", err),
@@ -113,15 +118,15 @@ impl TcpServer {
                 match self.base.requests.get_mut(ctx.token) {
                     Some(request) => {
                         request.inner.query_buf = buf;
-
-                        //re-register so the pending actually gets accepted
-                        self.base.register(ctx.event_loop
+                        request.ready(ctx);
                     }
                     None => error!("Request {:?} not found", ctx.token),
                 }
             }
             None => error!("{:?} was not pending", ctx.token),
         }
+        //re-register so the pending actually gets accepted
+
     }
 
     pub fn receive_tcp(stream: &mut TcpStream) -> Vec<u8> {
@@ -144,10 +149,14 @@ impl TcpServer {
         return b3.clone();
     }
 
-    fn send_reply(&mut self) {
+    fn send_replies(&mut self) {
         debug!("There are {} responses to send", self.base.responses.len());
-        let tok = Token(999);
-        let mut stream = self.accepted.get_mut(&tok).unwrap();
-        self.base.responses.pop().and_then(|reply| Some(reply.send(&mut stream)));
+        //let tok = Token(999);
+        self.base.responses.pop().and_then(|reply| {
+            let tok = reply.inner.token;
+            debug!("Will send {:?}", tok);
+            let mut stream = self.accepted.get_mut(&tok).expect("accepted not there");
+            Some(reply.send(&mut stream))
+        });
     }
 }
