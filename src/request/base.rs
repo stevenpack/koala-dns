@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
+use std::io::Error;
 use mio::{Token, Timeout, Handler, EventSet, Evented, PollOpt};
-use server_mio::RequestContext;
+use server_mio::RequestCtx;
 use dns::dns_entities::DnsMessage;
 use dns::dns_entities::DnsHeader;
 
@@ -9,11 +10,8 @@ pub trait Request<T> {
     fn get(&self) -> &RequestBase;
     fn get_mut(&mut self) -> &mut RequestBase;
 
-    fn ready(&mut self, ctx: &mut RequestContext) {
-        debug!("State {:?} {:?} {:?}",
-               self.get().state,
-               ctx.token,
-               ctx.events);
+    fn ready(&mut self, ctx: &mut RequestCtx) {
+        debug!("State {:?} {:?} {:?}", self.get().state, ctx.token, ctx.events);
         // todo: authorative? cached? forward?
         match self.get().state {
             RequestState::New => self.accept(ctx),
@@ -22,10 +20,9 @@ pub trait Request<T> {
             _ => debug!("Nothing to do for this state {:?}", self.get().state),
         }
     }
-
-    fn accept(&mut self, ctx: &mut RequestContext);
-    fn forward(&mut self, ctx: &mut RequestContext);
-    fn receive(&mut self, ctx: &mut RequestContext);
+    fn accept(&mut self, ctx: &mut RequestCtx);
+    fn forward(&mut self, ctx: &mut RequestCtx);
+    fn receive(&mut self, ctx: &mut RequestCtx);
 }
 
 #[derive(Debug)]
@@ -55,6 +52,16 @@ pub struct RequestParams {
     pub upstream_addr: SocketAddr,
 }
 
+trait X {
+    fn x(&self);
+}
+
+impl<T> X for Option<T> {
+    fn x(&self) {
+        debug!("yo");
+    }
+}
+
 impl RequestBase {
     pub fn new(token: Token, query_buf: Vec<u8>, params: RequestParams) -> RequestBase {
         return RequestBase {
@@ -76,19 +83,21 @@ impl RequestBase {
         self.timeout_handle = Some(timeout);
     }
 
-
     pub fn on_timeout(&mut self, token: Token) {
         self.error_with(format!("{:?} timed out", token));
     }
 
-    pub fn set_timeout(&mut self, ctx: &mut RequestContext) {
+    pub fn set_timeout(&mut self, ctx: &mut RequestCtx) {
         match ctx.event_loop.timeout_ms(ctx.token, self.params.timeout) {
             Ok(t) => self.set_timeout_handle(t),
             Err(e) => error!("Failed to schedule timeout for {:?}. {:?}", ctx.token, e),
         }
     }
 
-    pub fn clear_timeout(&mut self, ctx: &mut RequestContext) {
+    pub fn clear_timeout(&mut self, ctx: &mut RequestCtx) {
+
+        self.timeout_handle.x();
+
         match self.timeout_handle {
             Some(handle) => {
                 if ctx.event_loop.clear_timeout(handle) {
@@ -102,7 +111,7 @@ impl RequestBase {
     }
 
     pub fn register_upstream(&mut self,
-                             ctx: &mut RequestContext,
+                             ctx: &mut RequestCtx,
                              events: EventSet,
                              sock: &Evented) {
 
@@ -134,11 +143,45 @@ impl RequestBase {
         return self.response_buf.is_some();
     }
 
-    pub fn accept(&mut self, ctx: &mut RequestContext, sock: &Evented) {
+    pub fn accept(&mut self, ctx: &mut RequestCtx, sock: &Evented) {
         debug_assert!(ctx.events.is_readable());
         self.set_state(RequestState::Accepted);
         //todo: if need to forward...
         self.register_upstream(ctx, EventSet::writable(), sock);
         debug!("Accepted and registered upstream");
+    }
+
+    pub fn on_receive(&mut self, ctx: &mut RequestCtx, count: usize, buf: &[u8]) {
+       if count > 0 {
+           //TODO: base.on_received()
+           debug!("Received {} bytes", count);
+           trace!("{:#?}", DnsMessage::parse(&buf));
+           self.buffer_response(&buf, count);
+           self.clear_timeout(ctx);
+           self.set_state(RequestState::ResponseReceived);
+       } else {
+           warn!("No data received on upstream_socket. {:?}", ctx.token);
+       }
+    }
+    pub fn on_receive_err(&mut self, ctx: &mut RequestCtx, e: Error) {
+        self.error_with(format!("Receive failed on {:?}. {:?}", ctx.token, e));
+        self.clear_timeout(ctx);
+    }
+
+    pub fn on_forward(&mut self, ctx: &mut RequestCtx, count: usize, sock: &Evented) {
+        debug!("Sent {:?} bytes", count);
+        //TODO base.on_forwarded
+        self.set_state(RequestState::Forwarded);
+        self.register_upstream(ctx, EventSet::readable(), sock);
+        // TODO: No, don't just timeout forwarded requests, time out the whole request,
+        // be it cached, authorative or forwarded
+        self.set_timeout(ctx);
+    }
+
+    pub fn on_forward_err(&mut self, ctx: &mut RequestCtx, e: Error) {
+        //todo: base.on_forward_error
+        self.error_with(format!("Failed to write to upstream_socket. {:?} {:?}",
+                                      e,
+                                      ctx.token))
     }
 }

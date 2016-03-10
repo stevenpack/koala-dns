@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use server_mio::{MioServer,RequestContext};
+use server_mio::{MioServer,RequestCtx};
 use mio::{EventLoop, EventSet, Token, TryRead};
 use mio::util::Slab;
 use mio::tcp::{TcpStream,TcpListener};
@@ -36,7 +36,7 @@ impl TcpServer {
         return server;
     }
 
-    pub fn server_ready(&mut self, ctx: &mut RequestContext)  {
+    pub fn server_ready(&mut self, ctx: &mut RequestCtx)  {
 
         debug!("tcp server_ready {:?}", ctx.events);
         if ctx.events.is_readable() {
@@ -44,7 +44,7 @@ impl TcpServer {
         }
         //     self.accept(&ctx)
         //         .and_then( |req| self.requests.insert(req).ok())
-        //         .and_then( |tok| Some(RequestContext::new(ctx.event_loop, EventSet::readable(), tok)))
+        //         .and_then( |tok| Some(RequestCtx::new(ctx.event_loop, EventSet::readable(), tok)))
         //         .and_then( |req_ctx| Some((self.requests.get_mut(req_ctx.token), req_ctx)))
         //         .and_then( |(req, mut req_ctx)| Some(req.unwrap().ready(&mut req_ctx)));
         // }
@@ -57,7 +57,7 @@ impl TcpServer {
     }
 
     //TODO: trait
-    pub fn request_ready(&mut self, ctx: &mut RequestContext) {
+    pub fn request_ready(&mut self, ctx: &mut RequestCtx) {
         debug!("request ready {:?}", ctx.token);
 
         if self.pending.contains_key(&ctx.token) {
@@ -91,7 +91,7 @@ impl TcpServer {
     //     self.base.owns(token)
     // }
 
-    pub fn accept(&mut self, ctx: &mut RequestContext) {
+    pub fn accept(&mut self, ctx: &mut RequestCtx) {
         match self.server_socket.accept() {
             Ok(Some((stream, addr))) => {
                     debug!("Accepted tcp request from {:?}. Now pending...", addr);
@@ -108,7 +108,7 @@ impl TcpServer {
         }
     }
 
-    fn accept_pending(&mut self, ctx: &mut RequestContext) {
+    fn accept_pending(&mut self, ctx: &mut RequestCtx) {
         debug_assert!(ctx.events.is_readable());
         match self.pending.remove(&ctx.token) {
             Some(mut stream) => {

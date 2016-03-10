@@ -1,11 +1,8 @@
 extern crate bytes;
-use mio::EventSet;
 use mio::udp::UdpSocket;
 use std::net::SocketAddr;
-use dns::dns_entities::DnsMessage;
-use request::base::{RequestBase, RequestState};
-use server_mio::RequestContext;
-use request::base::Request;
+use request::base::*;
+use server_mio::RequestCtx;
 //
 // Encapsulates the components of a dns request and response over Udp.
 //
@@ -32,7 +29,7 @@ impl Request<UdpRequest> for UdpRequest {
         &mut self.inner
     }
 
-    fn accept(&mut self, ctx: &mut RequestContext) {
+    fn accept(&mut self, ctx: &mut RequestCtx) {
         self.upstream_socket = UdpSocket::v4().ok();
         debug!("upstream created");
         match self.upstream_socket {
@@ -41,50 +38,32 @@ impl Request<UdpRequest> for UdpRequest {
         }
     }
 
-    fn receive(&mut self, ctx: &mut RequestContext) {
+
+    fn receive(&mut self, ctx: &mut RequestCtx) {
+
         assert!(ctx.events.is_readable());
         let mut buf = [0; 4096];
         match self.upstream_socket {
             Some(ref sock) => {
                 match sock.recv_from(&mut buf) {
-                    Ok(Some((count, addr))) => {
-                        debug!("Received {} bytes from {:?}", count, addr);
-                        trace!("{:#?}", DnsMessage::parse(&buf));
-                        self.inner.buffer_response(&buf, count);
-                        self.inner.clear_timeout(ctx);
-                        self.inner.set_state(RequestState::ResponseReceived);
-                    }
+                    Ok(Some((count, _))) => self.inner.on_receive(ctx, count, &buf),
                     Ok(None) => debug!("No data received on upstream_socket. {:?}", ctx.token),
-                    Err(e) => {
-                        self.inner.error_with(format!("Receive failed on {:?}. {:?}", ctx.token, e));
-                        self.inner.clear_timeout(ctx);
-                    }
+                    Err(e) => self.inner.on_receive_err(ctx, e)
                 }
             },
             None => {}
         }
     }
 
-    fn forward(&mut self, ctx: &mut RequestContext) {
-        debug!("Forwarding...");
-        debug_assert!(ctx.events.is_writable());
+    fn forward(&mut self, ctx: &mut RequestCtx) {
+        
         //TODO: error on fail to create upstream socket
         match self.upstream_socket {
             Some(ref sock) => {
                 match sock.send_to(&mut self.inner.query_buf.as_slice(), &self.inner.params.upstream_addr) {
-                      Ok(Some(_)) => {
-                          self.inner.set_state(RequestState::Forwarded);
-                          self.inner.register_upstream(ctx, EventSet::readable(), sock);
-                          // TODO: No, don't just timeout forwarded requests, time out the whole request,
-                          // be it cached, authorative or forwarded
-                          self.inner.set_timeout(ctx);
-                      }
+                      Ok(Some(count)) => self.inner.on_forward(ctx, count, sock),
                       Ok(None) => debug!("0 bytes sent. Staying in same state {:?}", ctx.token),
-                      Err(e) => {
-                          self.inner.error_with(format!("Failed to write to upstream_socket. {:?} {:?}",
-                                                        e,
-                                                        ctx.token))
-                      }
+                      Err(e) => self.inner.on_forward_err(ctx, e)
                   }
             },
             None => {}
@@ -93,10 +72,6 @@ impl Request<UdpRequest> for UdpRequest {
 }
 
 impl UdpRequest {
-
-
-
-
 
     pub fn send(&self, socket: &UdpSocket) {
         match self.inner.response_buf {

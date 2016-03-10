@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use mio::{EventLoop, Token, EventSet};
 use mio::util::Slab;
 use mio::udp::UdpSocket;
-use server_mio::{MioServer,RequestContext};
+use server_mio::{MioServer,RequestCtx};
 use request::base::*;
 use request::udp::UdpRequest;
 use servers::base::*;
@@ -58,11 +58,11 @@ impl UdpServer {
         };
     }
 
-    pub fn server_ready(&mut self, ctx: &mut RequestContext)  {
+    pub fn server_ready(&mut self, ctx: &mut RequestCtx)  {
         if ctx.events.is_readable() {
             self.accept(ctx.token)
                 .and_then( |req| self.base.requests.insert(req).ok())
-                .and_then( |tok| Some(RequestContext::new(ctx.event_loop, EventSet::readable(), tok)))
+                .and_then( |tok| Some(RequestCtx::new(ctx.event_loop, EventSet::readable(), tok)))
                 .and_then( |req_ctx| Some((self.base.requests.get_mut(req_ctx.token), req_ctx)))
                 .and_then( |(req, mut req_ctx)| Some(req.unwrap().ready(&mut req_ctx)));
         }
@@ -74,7 +74,7 @@ impl UdpServer {
         self.reregister_server(ctx.event_loop, EventSet::readable());
     }
 
-    pub fn request_ready(&mut self, ctx: &mut RequestContext) {
+    pub fn request_ready(&mut self, ctx: &mut RequestCtx) {
         let mut queue_response = false;
         match self.base.requests.get_mut(ctx.token) {
             Some(mut request) => {

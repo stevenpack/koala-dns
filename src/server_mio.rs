@@ -23,7 +23,7 @@ impl Handler for MioServer {
 
     fn ready(&mut self, event_loop: &mut EventLoop<Self>, token: Token, events: EventSet) {
 
-        let mut ctx = RequestContext::new(event_loop, events, token);
+        let mut ctx = RequestCtx::new(event_loop, events, token);
 
         match token {
             UdpServer::UDP_SERVER_TOKEN => self.udp_server.server_ready(&mut ctx),
@@ -37,7 +37,7 @@ impl Handler for MioServer {
     #[allow(unused_variables)]
     fn timeout(&mut self, event_loop: &mut EventLoop<Self>, token: Self::Timeout) {
         info!("Got timeout: {:?}", token);
-        let mut ctx = RequestContext::new(event_loop, EventSet::none(), token);
+        let mut ctx = RequestCtx::new(event_loop, EventSet::none(), token);
         match token {
             udp_tok if self.udp_server.base.owns(udp_tok) => self.udp_server.base.timeout(&mut ctx),
             tcp_tok if self.tcp_server.base.owns(tcp_tok) => self.tcp_server.base.timeout(&mut ctx),
@@ -55,18 +55,18 @@ impl Handler for MioServer {
     }
 }
 
-pub struct RequestContext<'a> {
+pub struct RequestCtx<'a> {
     pub event_loop: &'a mut EventLoop<MioServer>,
     pub events: EventSet,
     pub token: Token,
 }
 
-impl<'a> RequestContext<'a> {
+impl<'a> RequestCtx<'a> {
     pub fn new(event_loop: &mut EventLoop<MioServer>,
             events: EventSet,
             token: Token)
-            -> RequestContext {
-        return RequestContext {
+            -> RequestCtx {
+        return RequestCtx {
             event_loop: event_loop,
             events: events,
             token: token,

@@ -1,6 +1,6 @@
 use mio::{EventLoop, EventSet, Token, PollOpt, Evented};
 use mio::util::{Slab};
-use server_mio::{MioServer,RequestContext};
+use server_mio::{MioServer,RequestCtx};
 use request::base::*;
 use std::net::SocketAddr;
 
@@ -48,7 +48,7 @@ impl<T> ServerBase<T> where T: Request<T> {
         T::new_with(addr, request)
     }
 
-    pub fn timeout(&mut self, ctx: &mut RequestContext) {
+    pub fn timeout(&mut self, ctx: &mut RequestCtx) {
         self.requests.get_mut(ctx.token).unwrap().get_mut().on_timeout(ctx.token);
     }
 
