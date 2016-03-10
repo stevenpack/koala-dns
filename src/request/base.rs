@@ -4,10 +4,28 @@ use server_mio::RequestContext;
 use dns::dns_entities::DnsMessage;
 use dns::dns_entities::DnsHeader;
 
-pub trait IRequest<T> {
+pub trait Request<T> {
     fn new_with(client_addr: SocketAddr, request: RequestBase) -> T;
     fn get(&self) -> &RequestBase;
     fn get_mut(&mut self) -> &mut RequestBase;
+
+    fn ready(&mut self, ctx: &mut RequestContext) {
+        debug!("State {:?} {:?} {:?}",
+               self.get().state,
+               ctx.token,
+               ctx.events);
+        // todo: authorative? cached? forward?
+        match self.get().state {
+            RequestState::New => self.accept(ctx),
+            RequestState::Accepted => self.forward(ctx),
+            RequestState::Forwarded => self.receive(ctx),
+            _ => debug!("Nothing to do for this state {:?}", self.get().state),
+        }
+    }
+
+    fn accept(&mut self, ctx: &mut RequestContext);
+    fn forward(&mut self, ctx: &mut RequestContext);
+    fn receive(&mut self, ctx: &mut RequestContext);
 }
 
 #[derive(Debug)]
@@ -48,7 +66,6 @@ impl RequestBase {
             params: params,
         };
     }
-
 
     pub fn set_state(&mut self, state: RequestState) {
         debug!("{:?} -> {:?}", self.state, state);

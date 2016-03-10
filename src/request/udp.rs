@@ -5,17 +5,17 @@ use std::net::SocketAddr;
 use dns::dns_entities::DnsMessage;
 use request::base::{RequestBase, RequestState};
 use server_mio::RequestContext;
-use request::base::IRequest;
+use request::base::Request;
 //
 // Encapsulates the components of a dns request and response over Udp.
 //
 pub struct UdpRequest {
     upstream_socket: Option<UdpSocket>,
-    pub client_addr: SocketAddr,
-    pub inner: RequestBase,
+    client_addr: SocketAddr,
+    inner: RequestBase,
 }
 
-impl IRequest<UdpRequest> for UdpRequest {
+impl Request<UdpRequest> for UdpRequest {
     fn new_with(client_addr: SocketAddr, request: RequestBase) -> UdpRequest {
         return UdpRequest {
             upstream_socket: None,
@@ -31,15 +31,36 @@ impl IRequest<UdpRequest> for UdpRequest {
     fn get_mut(&mut self) -> &mut RequestBase {
         &mut self.inner
     }
-}
-
-impl UdpRequest {
 
     fn accept(&mut self, ctx: &mut RequestContext) {
         self.upstream_socket = UdpSocket::v4().ok();
         debug!("upstream created");
         match self.upstream_socket {
             Some(ref sock) => self.inner.accept(ctx, sock),
+            None => {}
+        }
+    }
+
+    fn receive(&mut self, ctx: &mut RequestContext) {
+        assert!(ctx.events.is_readable());
+        let mut buf = [0; 4096];
+        match self.upstream_socket {
+            Some(ref sock) => {
+                match sock.recv_from(&mut buf) {
+                    Ok(Some((count, addr))) => {
+                        debug!("Received {} bytes from {:?}", count, addr);
+                        trace!("{:#?}", DnsMessage::parse(&buf));
+                        self.inner.buffer_response(&buf, count);
+                        self.inner.clear_timeout(ctx);
+                        self.inner.set_state(RequestState::ResponseReceived);
+                    }
+                    Ok(None) => debug!("No data received on upstream_socket. {:?}", ctx.token),
+                    Err(e) => {
+                        self.inner.error_with(format!("Receive failed on {:?}. {:?}", ctx.token, e));
+                        self.inner.clear_timeout(ctx);
+                    }
+                }
+            },
             None => {}
         }
     }
@@ -69,44 +90,13 @@ impl UdpRequest {
             None => {}
         }
     }
+}
 
-    fn receive(&mut self, ctx: &mut RequestContext) {
-        assert!(ctx.events.is_readable());
-        let mut buf = [0; 4096];
-        match self.upstream_socket {
-            Some(ref sock) => {
-                match sock.recv_from(&mut buf) {
-                    Ok(Some((count, addr))) => {
-                        debug!("Received {} bytes from {:?}", count, addr);
-                        trace!("{:#?}", DnsMessage::parse(&buf));
-                        self.inner.buffer_response(&buf, count);
-                        self.inner.clear_timeout(ctx);
-                        self.inner.set_state(RequestState::ResponseReceived);
-                    }
-                    Ok(None) => debug!("No data received on upstream_socket. {:?}", ctx.token),
-                    Err(e) => {
-                        self.inner.error_with(format!("Receive failed on {:?}. {:?}", ctx.token, e));
-                        self.inner.clear_timeout(ctx);
-                    }
-                }
-            },
-            None => {}
-        }
-    }
+impl UdpRequest {
 
-    pub fn ready(&mut self, ctx: &mut RequestContext) {
-        debug!("State {:?} {:?} {:?}",
-               self.inner.state,
-               ctx.token,
-               ctx.events);
-        // todo: authorative? cached? forward?
-        match self.inner.state {
-            RequestState::New => self.accept(ctx),
-            RequestState::Accepted => self.forward(ctx),
-            RequestState::Forwarded => self.receive(ctx),
-            _ => debug!("Nothing to do for this state {:?}", self.inner.state),
-        }
-    }
+
+
+
 
     pub fn send(&self, socket: &UdpSocket) {
         match self.inner.response_buf {

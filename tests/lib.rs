@@ -2,7 +2,7 @@
 #![feature(convert)]
 extern crate koala_dns;
 
-use koala_dns::server::*;
+use koala_dns::servers::*;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::thread;

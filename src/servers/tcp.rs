@@ -67,7 +67,7 @@ impl TcpServer {
             match self.base.requests.get_mut(ctx.token) {
                 Some(mut request) => {
                     request.ready(ctx);
-                    queue_response = request.inner.has_reply();
+                    queue_response = request.get().has_reply();
                 }
                 None => {/* must be a tcp request*/},
             }
@@ -95,10 +95,10 @@ impl TcpServer {
         match self.server_socket.accept() {
             Ok(Some((stream, addr))) => {
                     debug!("Accepted tcp request from {:?}. Now pending...", addr);
-                    let mut req = self.base.build_request(ctx.token, addr, Vec::<u8>::new().as_slice());
+                    let req = self.base.build_request(ctx.token, addr, Vec::<u8>::new().as_slice());
                     let token = self.base.requests.insert_with(|_| req).unwrap();
                     //HACK: creating with the server token, then updating smells
-                    self.base.requests.get_mut(token).unwrap().inner.token = token;
+                    self.base.requests.get_mut(token).unwrap().get_mut().token = token;
                     debug!("token is {:?} ", token);
                     self.base.register(ctx.event_loop, &stream, EventSet::readable(), token, false);
                     self.pending.insert(token, stream);
@@ -117,7 +117,7 @@ impl TcpServer {
                 debug!("tcp accepted {:?}", ctx.token);
                 match self.base.requests.get_mut(ctx.token) {
                     Some(request) => {
-                        request.inner.query_buf = buf;
+                        request.get_mut().query_buf = buf;
                         request.ready(ctx);
                     }
                     None => error!("Request {:?} not found", ctx.token),
@@ -153,7 +153,7 @@ impl TcpServer {
         debug!("There are {} responses to send", self.base.responses.len());
         //let tok = Token(999);
         self.base.responses.pop().and_then(|reply| {
-            let tok = reply.inner.token;
+            let tok = reply.get().token;
             debug!("Will send {:?}", tok);
             let mut stream = self.accepted.get_mut(&tok).expect("accepted not there");
             Some(reply.send(&mut stream))

@@ -3,7 +3,7 @@ use mio::{EventLoop, Token, EventSet};
 use mio::util::Slab;
 use mio::udp::UdpSocket;
 use server_mio::{MioServer,RequestContext};
-use request::base::{RequestParams};
+use request::base::*;
 use request::udp::UdpRequest;
 use servers::base::*;
 
@@ -79,7 +79,7 @@ impl UdpServer {
         match self.base.requests.get_mut(ctx.token) {
             Some(mut request) => {
                 request.ready(ctx);
-                queue_response = request.inner.has_reply();
+                queue_response = request.get().has_reply();
             }
             None => {/* must be a tcp request*/},
         }

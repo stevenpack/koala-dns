@@ -5,13 +5,13 @@ use request::base::*;
 use std::net::SocketAddr;
 
 //ServerMixin
-pub struct ServerBase<T> where T : IRequest<T> {
+pub struct ServerBase<T> where T : Request<T> {
     pub requests: Slab<T>,
     pub responses: Vec<T>,
     pub params: RequestParams
 }
 
-impl<T> ServerBase<T> where T: IRequest<T> {
+impl<T> ServerBase<T> where T: Request<T> {
     pub fn new(requests: Slab<T>, responses: Vec<T>, params: RequestParams) -> ServerBase<T> {
         ServerBase {
             requests: requests,
