@@ -73,14 +73,6 @@ impl<'a> RequestCtx<'a> {
 
 impl MioServer {
 
-    // pub fn reregister_server(event_loop: &mut EventLoop<MioServer>, events: EventSet, token: Token, socket: &Evented) {
-    //     debug!("Re-registered: {:?} with {:?}", token, events);
-    //     let _ = event_loop.reregister(socket,
-    //                                   token,
-    //                                   events,
-    //                                   PollOpt::edge() | PollOpt::oneshot());
-    // }
-
     pub fn start(address: SocketAddr,
                  upstream_server: SocketAddr,
                  timeout: u64)

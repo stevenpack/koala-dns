@@ -43,7 +43,7 @@ impl<'a> DirectAccessBuf for MutDnsPacket<'a> {
         return self.buf().len();
     }
 }
-// todo: copy and paste from DnsPacket
+//TODO: this is a copy and paste from DnsPacket
 ///Iterate each 16bit word in the packet
 impl<'a> Iterator for MutDnsPacket<'a> {
     ///2 octets of data and the position
