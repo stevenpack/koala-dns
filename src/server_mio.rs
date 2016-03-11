@@ -6,17 +6,16 @@ use std::net::SocketAddr;
 use std::thread;
 use std::thread::JoinHandle;
 use std::sync::{Arc, RwLock};
-use std::collections::HashMap;
 use mio::Sender;
 use request::base::{RequestParams};
+use servers::base::Cache;
 use servers::udp::UdpServer;
 use servers::tcp::TcpServer;
-use dns::dns_entities::*;
 
 pub struct MioServer {
     udp_server: UdpServer,
     tcp_server: TcpServer,
-    cache: Arc<RwLock<HashMap<String, DnsAnswer>>>
+    //cache: Arc<RwLock<Cache>>
 }
 
 impl Handler for MioServer {
@@ -90,7 +89,7 @@ impl MioServer {
             upstream_addr: upstream_server,
         };
 
-        let cache = HashMap::<String, DnsAnswer>::new();
+        let cache = Cache::new();
         let shared_cache = Arc::new(RwLock::new(cache));
 
         let udp_server = UdpServer::new(address, start_token, max_connections, params, shared_cache.clone());
@@ -114,7 +113,6 @@ impl MioServer {
         let mut mio_server = MioServer {
             udp_server: udp_server,
             tcp_server: tcp_server,
-            cache: shared_cache
         };
         let run_handle = thread::Builder::new()
                              .name("dns_srv_net_io".to_string())

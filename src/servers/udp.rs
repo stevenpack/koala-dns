@@ -6,9 +6,7 @@ use server_mio::{RequestCtx};
 use request::base::*;
 use request::udp::UdpRequest;
 use servers::base::*;
-use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-use dns::dns_entities::*;
 
 pub struct UdpServer {
     pub server_socket: UdpSocket,
@@ -17,7 +15,7 @@ pub struct UdpServer {
 
 impl UdpServer {
     pub const UDP_SERVER_TOKEN: Token = Token(1);
-    pub fn new(addr: SocketAddr, start_token: usize, max_connections: usize, params: RequestParams, cache: Arc<RwLock<HashMap<String, DnsAnswer>>>) -> UdpServer {
+    pub fn new(addr: SocketAddr, start_token: usize, max_connections: usize, params: RequestParams, cache: Arc<RwLock<Cache>>) -> UdpServer {
         let server_socket = Self::bind_udp(addr);
         let requests = Slab::new_starting_at(Token(start_token), max_connections);
         let responses = Vec::<UdpRequest>::new();

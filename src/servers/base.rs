@@ -5,19 +5,36 @@ use request::base::*;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use dns::dns_entities::*;
-use dns::dns_packet::*;
 use std::collections::HashMap;
+
+#[derive(Debug)]
+pub struct Cache {
+    items: HashMap<String, DnsAnswer>
+}
+
+impl Cache {
+
+    pub fn new() -> Cache {
+        Cache {
+            items: HashMap::<String, DnsAnswer>::new()
+        }
+    }
+
+    pub fn add(&mut self, key: String, answer: DnsAnswer) {
+        self.items.insert(key, answer);
+    }
+}
 
 pub struct ServerBase<T> where T : Request<T> {
     pub requests: Slab<T>,
     pub responses: Vec<T>,
     pub params: RequestParams,
     server_token: Token,
-    cache: Arc<RwLock<HashMap<String, DnsAnswer>>>
+    cache: Arc<RwLock<Cache>>
 }
 
 impl<T> ServerBase<T> where T: Request<T> {
-    pub fn new(requests: Slab<T>, responses: Vec<T>, params: RequestParams, token: Token, cache: Arc<RwLock<HashMap<String, DnsAnswer>>>) -> ServerBase<T> {
+    pub fn new(requests: Slab<T>, responses: Vec<T>, params: RequestParams, token: Token, cache: Arc<RwLock<Cache>>) -> ServerBase<T> {
         ServerBase {
             requests: requests,
             responses: responses,
@@ -50,7 +67,7 @@ impl<T> ServerBase<T> where T: Request<T> {
         self.requests.remove(token).and_then(|req| {
             let msg = DnsMessage::parse(&req.get().response_buf.as_ref().unwrap());
             debug!("{:?}", msg);
-            self.cache.write().unwrap().insert("a".to_owned(), msg.answers[0].clone());
+            self.cache.write().unwrap().add("a".to_owned(), msg.answers[0].clone());
             debug!("cached it!");
             return Some(self.responses.push(req))
         });
