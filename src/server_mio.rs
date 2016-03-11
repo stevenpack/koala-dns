@@ -5,14 +5,18 @@ use mio::{Evented, Token, EventLoop, EventSet, PollOpt, Handler};
 use std::net::SocketAddr;
 use std::thread;
 use std::thread::JoinHandle;
+use std::sync::{Arc, RwLock};
+use std::collections::HashMap;
 use mio::Sender;
 use request::base::{RequestParams};
 use servers::udp::UdpServer;
 use servers::tcp::TcpServer;
+use dns::dns_entities::*;
 
 pub struct MioServer {
     udp_server: UdpServer,
     tcp_server: TcpServer,
+    cache: Arc<RwLock<HashMap<String, DnsAnswer>>>
 }
 
 impl Handler for MioServer {
@@ -59,7 +63,7 @@ pub struct RequestCtx<'a> {
 }
 
 impl<'a> RequestCtx<'a> {
-    pub fn new(event_loop: &mut EventLoop<MioServer>,
+    pub fn new(event_loop: &'a mut EventLoop<MioServer>,
             events: EventSet,
             token: Token)
             -> RequestCtx {
@@ -86,8 +90,11 @@ impl MioServer {
             upstream_addr: upstream_server,
         };
 
-        let udp_server = UdpServer::new(address, start_token, max_connections, params);
-        let tcp_server = TcpServer::new(address, start_token, max_connections, params);
+        let cache = HashMap::<String, DnsAnswer>::new();
+        let shared_cache = Arc::new(RwLock::new(cache));
+
+        let udp_server = UdpServer::new(address, start_token, max_connections, params, shared_cache.clone());
+        let tcp_server = TcpServer::new(address, start_token, max_connections, params, shared_cache.clone());
 
         let mut event_loop = EventLoop::new().unwrap();
         let _ = event_loop.register(&udp_server.server_socket,
@@ -99,11 +106,15 @@ impl MioServer {
                                     TcpServer::TCP_SERVER_TOKEN,
                                     EventSet::readable(),
                                     PollOpt::edge() | PollOpt::oneshot());
+
         let tx = event_loop.channel();
+
+
 
         let mut mio_server = MioServer {
             udp_server: udp_server,
-            tcp_server: tcp_server
+            tcp_server: tcp_server,
+            cache: shared_cache
         };
         let run_handle = thread::Builder::new()
                              .name("dns_srv_net_io".to_string())

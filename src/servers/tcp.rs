@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use request::base::*;
 use request::tcp::TcpRequest;
 use servers::base::*;
+use std::sync::{Arc, RwLock};
+use dns::dns_entities::*;
 
 pub struct TcpServer {
     pub server_socket: TcpListener,
@@ -18,7 +20,7 @@ pub struct TcpServer {
 impl TcpServer {
     pub const TCP_SERVER_TOKEN: Token = Token(0);
 
-    pub fn new(addr: SocketAddr, start_token: usize, max_connections: usize, params: RequestParams) -> TcpServer {
+    pub fn new(addr: SocketAddr, start_token: usize, max_connections: usize, params: RequestParams, cache: Arc<RwLock<HashMap<String, DnsAnswer>>>) -> TcpServer {
         let listener = Self::bind_tcp(addr);
         let requests = Slab::new_starting_at(Token(start_token), max_connections);
         let responses = Vec::<TcpRequest>::new();
@@ -26,7 +28,7 @@ impl TcpServer {
             server_socket: listener,
             pending: HashMap::<Token, TcpStream>::new(),
             accepted: HashMap::<Token, TcpStream>::new(),
-            base: ServerBase::new(requests, responses, params, Self::TCP_SERVER_TOKEN)
+            base: ServerBase::new(requests, responses, params, Self::TCP_SERVER_TOKEN, cache),            
         }
     }
 

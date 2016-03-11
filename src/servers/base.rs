@@ -3,25 +3,27 @@ use mio::util::{Slab};
 use server_mio::{MioServer,RequestCtx};
 use request::base::*;
 use std::net::SocketAddr;
-
-pub trait Sender {
-    fn send(self);
-}
+use std::sync::{Arc, RwLock};
+use dns::dns_entities::*;
+use dns::dns_packet::*;
+use std::collections::HashMap;
 
 pub struct ServerBase<T> where T : Request<T> {
     pub requests: Slab<T>,
     pub responses: Vec<T>,
     pub params: RequestParams,
-    server_token: Token
+    server_token: Token,
+    cache: Arc<RwLock<HashMap<String, DnsAnswer>>>
 }
 
 impl<T> ServerBase<T> where T: Request<T> {
-    pub fn new(requests: Slab<T>, responses: Vec<T>, params: RequestParams, token: Token) -> ServerBase<T> {
+    pub fn new(requests: Slab<T>, responses: Vec<T>, params: RequestParams, token: Token, cache: Arc<RwLock<HashMap<String, DnsAnswer>>>) -> ServerBase<T> {
         ServerBase {
             requests: requests,
             responses: responses,
             params: params,
-            server_token: token
+            server_token: token,
+            cache: cache
         }
     }
     pub fn register(&self, event_loop: &mut EventLoop<MioServer>,
@@ -45,7 +47,13 @@ impl<T> ServerBase<T> where T: Request<T> {
     }
 
     pub fn queue_response(&mut self, token: Token) {
-        self.requests.remove(token).and_then(|req| Some(self.responses.push(req)));
+        self.requests.remove(token).and_then(|req| {
+            let msg = DnsMessage::parse(&req.get().response_buf.as_ref().unwrap());
+            debug!("{:?}", msg);
+            self.cache.write().unwrap().insert("a".to_owned(), msg.answers[0].clone());
+            debug!("cached it!");
+            return Some(self.responses.push(req))
+        });
         debug!("queued {:?}", token);
     }
 
@@ -72,6 +80,9 @@ impl<T> ServerBase<T> where T: Request<T> {
         let mut queue_response = false;
         match self.requests.get_mut(ctx.token) {
             Some(mut request) => {
+
+                debug!("Maybe we don't need to forward? Here's the cache: {:?}", self.cache);
+
                 request.ready(ctx);
                 queue_response = request.get().has_reply();
             }

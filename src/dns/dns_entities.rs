@@ -36,6 +36,7 @@ pub struct DnsHeader {
 }
 
 #[derive(Debug)]
+#[derive(Clone)]
 pub struct DnsAnswer {
     pub name: String,
     pub atype: u16,

@@ -39,7 +39,6 @@ impl Request<UdpRequest> for UdpRequest {
         }
     }
 
-
     fn receive(&mut self, ctx: &mut RequestCtx) {
         debug_assert!(ctx.events.is_readable());
         let mut buf = [0; 4096];
@@ -67,8 +66,6 @@ impl Request<UdpRequest> for UdpRequest {
             None => error!("udp forward")
         }
     }
-
-
 }
 
 impl UdpRequest {

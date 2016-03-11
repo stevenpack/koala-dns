@@ -137,7 +137,6 @@ impl RequestBase {
 
     pub fn on_receive(&mut self, ctx: &mut RequestCtx, count: usize, buf: &[u8]) {
        if count > 0 {
-           //TODO: base.on_received()
            debug!("Received {} bytes", count);
            trace!("{:#?}", DnsMessage::parse(&buf));
            self.buffer_response(&buf, count);

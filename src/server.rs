@@ -49,16 +49,9 @@ impl ServerOps for Server {
     }
 
     fn stop(&mut self) {
-        // let ref sender = self.sender.unwrap();
-        // sender.send(format!("{}", "xx"));
-        // info!("Sent stop");
-        // info!("port {}", self.port);
-        // info!("sender {:?}", self.sender);
         match self.sender {
             Some(ref x) => x.send(format!("{:?}", "Stop!")).unwrap(),
-            None => warn!("Sender is null. Have you called start? {:?}", "xx"),
+            None => warn!("Sender is null. Have you called start?"),
         };
-        // let ref x = self.sender;
-        // x.as_ref().unwrap().send(format!("{:?}", "Stop!"));
     }
 }
