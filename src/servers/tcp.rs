@@ -1,18 +1,18 @@
 use std::net::SocketAddr;
-use server_mio::{MioServer,RequestCtx};
-use mio::{EventLoop, EventSet, Token, TryRead};
+use server_mio::{RequestCtx};
+use mio::{EventSet, Token, TryRead};
 use mio::util::Slab;
 use mio::tcp::{TcpStream,TcpListener};
 use std::collections::HashMap;
 use request::base::*;
 use request::tcp::TcpRequest;
-use servers::base::{ServerBase};
+use servers::base::*;
 
 pub struct TcpServer {
     pub server_socket: TcpListener,
+    pub base: ServerBase<TcpRequest>,
     pending: HashMap<Token, TcpStream>,
     accepted: HashMap<Token, TcpStream>,
-    pub base: ServerBase<TcpRequest>
 }
 
 impl TcpServer {
@@ -26,7 +26,7 @@ impl TcpServer {
             server_socket: listener,
             pending: HashMap::<Token, TcpStream>::new(),
             accepted: HashMap::<Token, TcpStream>::new(),
-            base: ServerBase::new(requests, responses, params)
+            base: ServerBase::new(requests, responses, params, Self::TCP_SERVER_TOKEN)
         }
     }
 
@@ -37,74 +37,48 @@ impl TcpServer {
     }
 
     pub fn server_ready(&mut self, ctx: &mut RequestCtx)  {
-
-        debug!("tcp server_ready {:?}", ctx.events);
         if ctx.events.is_readable() {
             self.accept(ctx);
         }
-        //     self.accept(&ctx)
-        //         .and_then( |req| self.requests.insert(req).ok())
-        //         .and_then( |tok| Some(RequestCtx::new(ctx.event_loop, EventSet::readable(), tok)))
-        //         .and_then( |req_ctx| Some((self.requests.get_mut(req_ctx.token), req_ctx)))
-        //         .and_then( |(req, mut req_ctx)| Some(req.unwrap().ready(&mut req_ctx)));
-        // }
-        // if ctx.events.is_writable() {
-        //     self.send_reply(ctx.token);
-        // }
-        // We are always listening for new requests. The server socket will be regregistered
-        // as writable if there are responses to write
-        self.reregister_server(ctx.event_loop, EventSet::readable());
+        self.base.reregister_server(ctx.event_loop, &self.server_socket, EventSet::readable());
     }
 
-    //TODO: trait
     pub fn request_ready(&mut self, ctx: &mut RequestCtx) {
-        debug!("request ready {:?}", ctx.token);
-
         if self.pending.contains_key(&ctx.token) {
-            self.accept_pending(ctx)
-        } else {
-            let mut queue_response = false;
-            match self.base.requests.get_mut(ctx.token) {
-                Some(mut request) => {
-                    request.ready(ctx);
-                    queue_response = request.get().has_reply();
-                }
-                None => {/* must be a tcp request*/},
-            }
-            if queue_response {
-                self.base.queue_response(ctx.token);
-                //self.reregister_server(ctx.event_loop, EventSet::readable() | EventSet::writable());
-                self.send_replies();
-            }
+            self.accept_pending(ctx);
+            return;
+        }
+        self.base.request_ready(ctx);
 
+        if self.base.responses.len() > 0 {
+            self.send_replies(ctx);
         }
     }
-
-    fn reregister_server(&self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
-        MioServer::reregister_server(event_loop, events, TcpServer::TCP_SERVER_TOKEN, &self.server_socket);
-    }
-
-    //TODO: trait
-    //TODO: so self.base.owns, or self.owns? is the trait defined to call down worth it?
-    // pub fn owns(&self, token: Token) -> bool {
-    //     //self.pending.contains_key(&token) || self.accepted.contains_key(&token)
-    //     self.base.owns(token)
-    // }
 
     pub fn accept(&mut self, ctx: &mut RequestCtx) {
         match self.server_socket.accept() {
             Ok(Some((stream, addr))) => {
                     debug!("Accepted tcp request from {:?}. Now pending...", addr);
+                    //request gets created with server token, and then updated with the slab token
                     let req = self.base.build_request(ctx.token, addr, Vec::<u8>::new().as_slice());
-                    let token = self.base.requests.insert_with(|_| req).unwrap();
-                    //HACK: creating with the server token, then updating smells
-                    self.base.requests.get_mut(token).unwrap().get_mut().token = token;
-                    debug!("token is {:?} ", token);
-                    self.base.register(ctx.event_loop, &stream, EventSet::readable(), token, false);
-                    self.pending.insert(token, stream);
+                    match self.base.requests.insert_with(|_| req) {
+                        Some(token) => {
+                            self.update_token(ctx.token, token);
+                            self.base.register(ctx.event_loop, &stream, EventSet::readable(), token, false);
+                            self.pending.insert(token, stream);
+                        },
+                        None => error!("Failed to insert request {:?}", ctx.token)
+                    }
             }
             Ok(None) => debug!("Socket would block. Waiting..."),
             Err(err) => error!("Failed to accept tcp connection {}", err),
+        }
+    }
+
+    fn update_token(&mut self, server_token: Token, client_token: Token) {
+        match self.base.requests.get_mut(server_token) {
+            Some(req) => req.get_mut().token = client_token,
+            None => error!("No request waiting for updated token")
         }
     }
 
@@ -125,13 +99,9 @@ impl TcpServer {
             }
             None => error!("{:?} was not pending", ctx.token),
         }
-        //re-register so the pending actually gets accepted
-
     }
 
     pub fn receive_tcp(stream: &mut TcpStream) -> Vec<u8> {
-        info!("Have a TcpStream to receive from to {:?}", stream);
-
         let mut buf = Vec::<u8>::with_capacity(512);
         match stream.try_read_buf(&mut buf) {
             Ok(Some(0)) => info!("Read 0 bytes"),
@@ -140,23 +110,20 @@ impl TcpServer {
             Err(err) => error!("read failed {}", err),
         }
 
-        info!("Read {} bytes", buf.len());
-        // TODO: FIRST TWO BYTES IN TCP ARE LENGTH
-        let mut b2 = Vec::from(buf);
-        let b3 = b2.split_off(2);
-        // let msg = DnsMessage::parse(&b3);
-        // debug!("{:?}", msg);
-        return b3.clone();
+        debug!("Read {} bytes", buf.len());
+        //tcp has 2-byte lenth prefix
+        return buf.split_off(2);
     }
 
-    fn send_replies(&mut self) {
+    fn send_replies(&mut self, ctx: &mut RequestCtx) {
         debug!("There are {} responses to send", self.base.responses.len());
-        //let tok = Token(999);
         self.base.responses.pop().and_then(|reply| {
             let tok = reply.get().token;
             debug!("Will send {:?}", tok);
-            let mut stream = self.accepted.get_mut(&tok).expect("accepted not there");
-            Some(reply.send(&mut stream))
+            match self.accepted.get_mut(&ctx.token) {
+                Some(stream) => Some(reply.send(stream)),
+                None => None
+            }
         });
     }
 }

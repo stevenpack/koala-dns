@@ -1,8 +1,8 @@
 use std::net::SocketAddr;
-use mio::{EventLoop, Token, EventSet};
+use mio::{Token, EventSet};
 use mio::util::Slab;
 use mio::udp::UdpSocket;
-use server_mio::{MioServer,RequestCtx};
+use server_mio::{RequestCtx};
 use request::base::*;
 use request::udp::UdpRequest;
 use servers::base::*;
@@ -20,7 +20,7 @@ impl UdpServer {
         let responses = Vec::<UdpRequest>::new();
         UdpServer {
             server_socket: server_socket,
-            base: ServerBase::<UdpRequest>::new(requests, responses, params)
+            base: ServerBase::<UdpRequest>::new(requests, responses, params, Self::UDP_SERVER_TOKEN)
         }
     }
 
@@ -67,11 +67,13 @@ impl UdpServer {
                 .and_then( |(req, mut req_ctx)| Some(req.unwrap().ready(&mut req_ctx)));
         }
         if ctx.events.is_writable() {
-            self.send_reply();
+            if self.base.responses.len() > 0 {
+                self.send_all();
+            }
         }
         // We are always listening for new requests. The server socket will be regregistered
         // as writable if there are responses to write
-        self.reregister_server(ctx.event_loop, EventSet::readable());
+        self.base.reregister_server(ctx.event_loop, &self.server_socket, EventSet::readable());
     }
 
     pub fn request_ready(&mut self, ctx: &mut RequestCtx) {
@@ -85,16 +87,12 @@ impl UdpServer {
         }
         if queue_response {
             self.base.queue_response(ctx.token);
-            self.reregister_server(ctx.event_loop, EventSet::readable() | EventSet::writable());
+            self.base.reregister_server(ctx.event_loop, &self.server_socket, EventSet::readable() | EventSet::writable());
         }
     }
 
-    fn send_reply(&mut self) {
+    fn send_all(&mut self) {
         debug!("There are {} responses to send", self.base.responses.len());
         self.base.responses.pop().and_then(|reply| Some(reply.send(&self.server_socket)));
-    }
-
-    fn reregister_server(&self, event_loop: &mut EventLoop<MioServer>, events: EventSet) {
-        MioServer::reregister_server(event_loop, events, UdpServer::UDP_SERVER_TOKEN, &self.server_socket);
     }
 }

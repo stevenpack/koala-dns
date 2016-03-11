@@ -52,16 +52,6 @@ pub struct RequestParams {
     pub upstream_addr: SocketAddr,
 }
 
-trait X {
-    fn x(&self);
-}
-
-impl<T> X for Option<T> {
-    fn x(&self) {
-        debug!("yo");
-    }
-}
-
 impl RequestBase {
     pub fn new(token: Token, query_buf: Vec<u8>, params: RequestParams) -> RequestBase {
         return RequestBase {
@@ -96,8 +86,6 @@ impl RequestBase {
 
     pub fn clear_timeout(&mut self, ctx: &mut RequestCtx) {
 
-        self.timeout_handle.x();
-
         match self.timeout_handle {
             Some(handle) => {
                 if ctx.event_loop.clear_timeout(handle) {
@@ -110,11 +98,7 @@ impl RequestBase {
         }
     }
 
-    pub fn register_upstream(&mut self,
-                             ctx: &mut RequestCtx,
-                             events: EventSet,
-                             sock: &Evented) {
-
+    pub fn register_upstream(&mut self, ctx: &mut RequestCtx, events: EventSet, sock: &Evented) {
         let poll_opt = PollOpt::edge() | PollOpt::oneshot();
         ctx.event_loop
            .register(sock, ctx.token, events, poll_opt)
@@ -132,7 +116,7 @@ impl RequestBase {
 
     pub fn error_with(&mut self, err_msg: String) {
         self.set_state(RequestState::Error);
-        info!("{}", err_msg);
+        debug!("{}", err_msg);
         let req = DnsMessage::parse(&self.query_buf);
         let reply = DnsHeader::new_error(req.header, 2);
         let vec = reply.to_bytes();
@@ -170,7 +154,6 @@ impl RequestBase {
 
     pub fn on_forward(&mut self, ctx: &mut RequestCtx, count: usize, sock: &Evented) {
         debug!("Sent {:?} bytes", count);
-        //TODO base.on_forwarded
         self.set_state(RequestState::Forwarded);
         self.register_upstream(ctx, EventSet::readable(), sock);
         // TODO: No, don't just timeout forwarded requests, time out the whole request,
@@ -179,9 +162,6 @@ impl RequestBase {
     }
 
     pub fn on_forward_err(&mut self, ctx: &mut RequestCtx, e: Error) {
-        //todo: base.on_forward_error
-        self.error_with(format!("Failed to write to upstream_socket. {:?} {:?}",
-                                      e,
-                                      ctx.token))
+        self.error_with(format!("Failed to write to upstream_socket. {:?} {:?}", e, ctx.token))
     }
 }

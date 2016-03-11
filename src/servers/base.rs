@@ -4,19 +4,24 @@ use server_mio::{MioServer,RequestCtx};
 use request::base::*;
 use std::net::SocketAddr;
 
-//ServerMixin
+pub trait Sender {
+    fn send(self);
+}
+
 pub struct ServerBase<T> where T : Request<T> {
     pub requests: Slab<T>,
     pub responses: Vec<T>,
-    pub params: RequestParams
+    pub params: RequestParams,
+    server_token: Token
 }
 
 impl<T> ServerBase<T> where T: Request<T> {
-    pub fn new(requests: Slab<T>, responses: Vec<T>, params: RequestParams) -> ServerBase<T> {
+    pub fn new(requests: Slab<T>, responses: Vec<T>, params: RequestParams, token: Token) -> ServerBase<T> {
         ServerBase {
             requests: requests,
             responses: responses,
-            params: params
+            params: params,
+            server_token: token
         }
     }
     pub fn register(&self, event_loop: &mut EventLoop<MioServer>,
@@ -35,6 +40,10 @@ impl<T> ServerBase<T> where T: Request<T> {
         }
     }
 
+    pub fn reregister_server(&self, event_loop: &mut EventLoop<MioServer>, sock: &Evented, events: EventSet) {
+        self.register(event_loop, sock, events, self.server_token, true);
+    }
+
     pub fn queue_response(&mut self, token: Token) {
         self.requests.remove(token).and_then(|req| Some(self.responses.push(req)));
         debug!("queued {:?}", token);
@@ -49,19 +58,27 @@ impl<T> ServerBase<T> where T: Request<T> {
     }
 
     pub fn timeout(&mut self, ctx: &mut RequestCtx) {
+        debug!("Timeout for {:?}", ctx.token);
         self.requests.get_mut(ctx.token).unwrap().get_mut().on_timeout(ctx.token);
     }
 
-    // fn register(&self,
-    //         event_loop: &mut EventLoop<MioServer>,
-    //         socket: &Evented,
-    //         events: EventSet,
-    //         token: Token,
-    //         reregister: bool) {
-    //     ServerBase::<T>::register(event_loop, socket, events, token, reregister);
-    // }
-
     pub fn owns(&self, token: Token) -> bool {
         self.requests.contains(token)
+    }
+
+    pub fn request_ready(&mut self, ctx: &mut RequestCtx) {
+        debug!("request ready {:?}", ctx.token);
+
+        let mut queue_response = false;
+        match self.requests.get_mut(ctx.token) {
+            Some(mut request) => {
+                request.ready(ctx);
+                queue_response = request.get().has_reply();
+            }
+            None => error!("{:?} got routed to wrong server", ctx.token),
+        }
+        if queue_response {
+            self.queue_response(ctx.token);
+        }
     }
 }

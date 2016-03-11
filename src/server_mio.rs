@@ -13,8 +13,6 @@ use servers::tcp::TcpServer;
 pub struct MioServer {
     udp_server: UdpServer,
     tcp_server: TcpServer,
-    // upstream_server: SocketAddr,
-    // timeout: u64,
 }
 
 impl Handler for MioServer {
@@ -22,9 +20,8 @@ impl Handler for MioServer {
     type Message = String; //todo: make enum
 
     fn ready(&mut self, event_loop: &mut EventLoop<Self>, token: Token, events: EventSet) {
-
         let mut ctx = RequestCtx::new(event_loop, events, token);
-
+        debug!("MioServer.ready() {:?}", ctx.events);
         match token {
             UdpServer::UDP_SERVER_TOKEN => self.udp_server.server_ready(&mut ctx),
             TcpServer::TCP_SERVER_TOKEN => self.tcp_server.server_ready(&mut ctx),
@@ -76,13 +73,13 @@ impl<'a> RequestCtx<'a> {
 
 impl MioServer {
 
-    pub fn reregister_server(event_loop: &mut EventLoop<MioServer>, events: EventSet, token: Token, socket: &Evented) {
-        debug!("Re-registered: {:?} with {:?}", token, events);
-        let _ = event_loop.reregister(socket,
-                                      token,
-                                      events,
-                                      PollOpt::edge() | PollOpt::oneshot());
-    }
+    // pub fn reregister_server(event_loop: &mut EventLoop<MioServer>, events: EventSet, token: Token, socket: &Evented) {
+    //     debug!("Re-registered: {:?} with {:?}", token, events);
+    //     let _ = event_loop.reregister(socket,
+    //                                   token,
+    //                                   events,
+    //                                   PollOpt::edge() | PollOpt::oneshot());
+    // }
 
     pub fn start(address: SocketAddr,
                  upstream_server: SocketAddr,
@@ -122,6 +119,7 @@ impl MioServer {
                                  info!("Mio server running...");
                                  let _ = event_loop.run(&mut mio_server);
                                  drop(mio_server.udp_server);
+                                 drop(mio_server.tcp_server);
                              })
                              .unwrap_or_else(|e| {
                                  panic!("Failed to start udp server. Error was {}", e)

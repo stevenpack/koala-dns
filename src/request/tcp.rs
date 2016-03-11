@@ -8,7 +8,7 @@ use server_mio::RequestCtx;
 pub struct TcpRequest {
     upstream_socket: Option<TcpStream>,
     client_addr: SocketAddr,
-    inner: RequestBase,
+    base: RequestBase,
 }
 
 impl Request<TcpRequest> for TcpRequest {
@@ -16,72 +16,74 @@ impl Request<TcpRequest> for TcpRequest {
         return TcpRequest {
             upstream_socket: None,
             client_addr: client_addr,
-            inner: request,
+            base: request,
         };
     }
 
     fn get(&self) -> &RequestBase {
-        &self.inner
+        &self.base
     }
 
     fn get_mut(&mut self) -> &mut RequestBase {
-        &mut self.inner
+        &mut self.base
     }
 
     fn accept(&mut self, ctx: &mut RequestCtx) {
-        self.upstream_socket = TcpStream::connect(&self.inner.params.upstream_addr).ok();
-        //TODO: error on fail to create upstream socket
-        debug!("upstream created");
-        match self.upstream_socket {
-            Some(ref sock) => self.inner.accept(ctx, sock),
-            None => {}
+        let addr = self.base.params.upstream_addr;
+        match TcpStream::connect(&addr) {
+            Ok(sock) => {
+                self.base.accept(ctx, &sock);
+                self.upstream_socket = Some(sock);
+            },
+            Err(e) => self.base.error_with(format!("Failed to connect to {:?} {:?}", addr, e))
         }
     }
 
     fn receive(&mut self, ctx: &mut RequestCtx) {
-        assert!(ctx.events.is_readable());
+        debug_assert!(ctx.events.is_readable());
         let mut buf = [0; 4096];
-
         match self.upstream_socket {
-            Some(ref mut socket) => {
-                match socket.read(&mut buf) {
-                    Ok(count) => self.inner.on_receive(ctx, count, &buf),
-                    Err(e) => self.inner.on_receive_err(ctx, e)
+            Some(ref mut sock) => {
+                match sock.read(&mut buf) {
+                    Ok(count) => self.base.on_receive(ctx, count, &buf),
+                    Err(e) => self.base.on_receive_err(ctx, e)
                 }
             }
-            None => error!("tcp stream"),
+            None => error!("tcp receive"),
         }
     }
 
     fn forward(&mut self, ctx: &mut RequestCtx) {
-        debug!("Forwarding... {:?} bytes to forward", self.inner.query_buf.len());
         debug_assert!(ctx.events.is_writable());
-
         match self.upstream_socket {
             Some(ref mut sock) => {
                 // prefix with length
-                let len = self.inner.query_buf.len() as u8;
-                self.inner.query_buf.insert(0, len);
-                self.inner.query_buf.insert(0, 0);
-
-                info!("{:?} bytes to send", self.inner.query_buf.len());
-                match sock.write_all(&mut self.inner.query_buf.as_slice()) {
-                      Ok(_) => self.inner.on_forward(ctx, len as usize, sock),
-                      Err(e) => self.inner.on_forward_err(ctx, e)
+                let len = self.base.query_buf.len() as u8;
+                debug!("{:?} bytes to send (+2b prefix)", len);
+                Self::prefix_with_length(&mut self.base.query_buf);
+                match sock.write_all(&mut self.base.query_buf.as_slice()) {
+                    Ok(_) => self.base.on_forward(ctx, len as usize, sock),
+                    Err(e) => self.base.on_forward_err(ctx, e)
                 }
             },
-            None => error!("tcp upstream socket")
+            None => error!("tcp forward")
         }
     }
 }
 
 impl TcpRequest {
 
-    pub fn send(&self, socket: &mut TcpStream) {
-        match self.inner.response_buf {
-            Some(ref response) => {
-                info!("{:?} bytes to send", response.len());
+    fn prefix_with_length(buf: &mut Vec<u8>) {
+        //TCP responses are prefixed with a 2-byte length
+        let len = buf.len() as u8;
+        buf.insert(0, len);
+        buf.insert(0, 0);
+    }
 
+    pub fn send(&self, socket: &mut TcpStream) {
+        match self.base.response_buf {
+            Some(ref response) => {
+                debug!("{:?} bytes to send", response.len());
                 match socket.write(&mut &response.as_slice()) {
                     Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, self.client_addr),
                     Err(e) => error!("Failed to send. {:?} Error was {:?}", self.client_addr, e),

@@ -4,8 +4,9 @@ DNS Server in Rust
 ## Learning project
 
 ### TODO
-- [some] Integration tests
+- [more] Integration tests
 - TCP / common traits
+- IPv6
 - Zone files
   - [some] serializing dns_entities to buffers
 - Other RFCs
