@@ -43,7 +43,6 @@ impl UdpServer {
         match socket.recv_from(&mut buf) {
             Ok(Some((count, addr))) => {
                 debug!("Received {} bytes from {}", count, addr);
-                // trace!("{:?}", buf);
                 buf.truncate(count);
                 return Some((addr, buf));
             }
@@ -77,17 +76,9 @@ impl UdpServer {
     }
 
     pub fn request_ready(&mut self, ctx: &mut RequestCtx) {
-        let mut queue_response = false;
-        match self.base.requests.get_mut(ctx.token) {
-            Some(mut request) => {
-                request.ready(ctx);
-                queue_response = request.get().has_reply();
-            }
-            None => {/* must be a tcp request*/},
-        }
-        if queue_response {
-            self.base.queue_response(ctx.token);
-            self.base.reregister_server(ctx.event_loop, &self.server_socket, EventSet::readable() | EventSet::writable());
+        self.base.request_ready(ctx);
+        if self.base.responses.len() > 0 {
+            self.send_all();
         }
     }
 

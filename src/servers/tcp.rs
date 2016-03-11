@@ -51,7 +51,7 @@ impl TcpServer {
         self.base.request_ready(ctx);
 
         if self.base.responses.len() > 0 {
-            self.send_replies(ctx);
+            self.send_all(ctx);
         }
     }
 
@@ -115,7 +115,7 @@ impl TcpServer {
         return buf.split_off(2);
     }
 
-    fn send_replies(&mut self, ctx: &mut RequestCtx) {
+    fn send_all(&mut self, ctx: &mut RequestCtx) {
         debug!("There are {} responses to send", self.base.responses.len());
         self.base.responses.pop().and_then(|reply| {
             let tok = reply.get().token;
