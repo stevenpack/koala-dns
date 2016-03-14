@@ -1,8 +1,9 @@
 use dns::dns_entities::*;
 use std::cmp::Ordering;
+use std::fmt::Debug;
 use std::collections::{HashMap, BTreeSet};
 use std::hash::Hash;
-use time::{Duration,SteadyTime,Tm};
+use time::{Duration,Tm};
 use time;
 
 #[derive(Debug)]
@@ -19,7 +20,10 @@ pub struct DnsKey {
 }
 
 pub trait Expires {
-    fn expires(&self) -> Tm;
+    fn expires_at(&self) -> Tm;
+    fn is_expired(&self) -> bool {
+        time::now_utc() > self.expires_at()
+    }
 }
 
 impl PartialEq for DnsKey {
@@ -39,7 +43,7 @@ impl Ord for DnsKey {
 }
 
 impl Expires for DnsKey {
-    fn expires(&self) -> Tm {
+    fn expires_at(&self) -> Tm {
         self.expiry
     }
 }
@@ -75,12 +79,12 @@ impl ResolverCache {
 }
 
 #[derive(Debug)]
-pub struct ExpiringCache<K,V> where K : Eq + Hash + Ord + Clone + Expires {
+pub struct ExpiringCache<K,V> where K : Eq + Hash + Ord + Clone + Expires + Debug {
     items: HashMap<K, V>, //hashmap for fast get
     keys: BTreeSet<K> //btreeset for storing keys in order they need to be removed
 }
 
-impl<K,V> ExpiringCache<K,V> where K : Eq + Hash + Ord + Clone + Expires {
+impl<K,V> ExpiringCache<K,V> where K : Eq + Hash + Ord + Clone + Expires + Debug {
 
     pub fn new() -> ExpiringCache<K,V> {
         ExpiringCache {
@@ -97,24 +101,52 @@ impl<K,V> ExpiringCache<K,V> where K : Eq + Hash + Ord + Clone + Expires {
         self.items.entry(key.clone()).or_insert(val);
         //For expiration
         self.keys.insert(key.clone());
+        debug_assert!(self.keys.len() == self.items.len());
     }
 
     pub fn get(&self, key: &K) -> Option<&V> {
-
-        //if not expired...
-
+        if key.is_expired() {
+            println!("key expired {:?}", key);
+            return None
+        }
         return self.items.get(key);
     }
-    //
+
     // fn remove(&mut self, key: &K) -> bool {
-    //     return false;
+    //     self.items.remove(key);
+    //     self.keys.remove(key)
     // }
-    fn contains(&self, key: &K) -> bool {
-        //if not expired...
-        return false;
-    }
-    fn remove_expired(&mut self) -> usize {
-        return 0;
+
+    // fn contains(&self, key: &K) -> bool {
+    //     self.items.contains_key(key) && !key.is_expired()
+    // }
+    //
+    // fn is_expired(&self, key: &K) -> bool {
+    //     return self.items.contains_key(key) && key.is_expired();
+    // }
+
+    pub fn remove_expired(&mut self) -> usize {
+        //TODO: faster with btreeset.range() and difference()?
+        let mut to_remove = Vec::<K>::new();
+        let mut count = 0;
+        for key in self.keys.iter() {
+            if key.is_expired() {
+                println!("removing {:?}", key);
+                self.items.remove(&key);
+                to_remove.push(key.clone());
+                count += 1;
+            } else {
+                println!("breaking on {:?} after {:?}", key, count);
+                //keys is ordered, so anything past here is not expired
+                break;
+            }
+        }
+
+        for key in to_remove {
+            self.keys.remove(&key);
+        }
+        debug_assert!(self.keys.len() == self.items.len());
+        count
     }
 }
 
@@ -122,6 +154,8 @@ impl<K,V> ExpiringCache<K,V> where K : Eq + Hash + Ord + Clone + Expires {
 mod tests {
     use super::*;
     use dns::dns_entities::*;
+    use std::thread;
+    use std::time::{Duration};
 
     #[test]
     fn key_eq() {
@@ -134,11 +168,60 @@ mod tests {
     }
 
     #[test]
-    fn upsert() {
+    fn upsert_insert() {
         let mut cache = ResolverCache::new();
-        let key = DnsKey::empty();
-        cache.base.upsert(key.clone(), DnsAnswer::new(String::from("yahoo.com"), 1,1,10,1,Vec::<u8>::new()));
+        let key = test_key();
+        cache.base.upsert(key.clone(), test_answer("yahoo.com"));
         let val = cache.base.get(&key);
         assert_eq!("yahoo.com", val.expect("upserted key missing").name);
+    }
+
+    // #[test]
+    // fn upsert_update() {
+    //     //TODO
+    //     //update an existing item with new ttl
+    // }
+
+    #[test]
+    fn expire() {
+        let k1 = DnsKey::new(String::from("yahoo.com"), 1, 1, 5);
+        assert_eq!(k1.is_expired(), false);
+        thread::sleep(Duration::from_millis(10));
+        assert_eq!(k1.is_expired(), true);
+    }
+
+    #[test]
+    fn remove_expired() {
+        let mut cache = ResolverCache::new();
+        let k1 = test_key_from("yahoo.com", 5);
+        let k2 = test_key_from("google.com", 50);
+        let k3 = test_key_from("lycos.com", 100);
+        cache.base.upsert(k1.clone(), test_answer("yahoo.com"));
+        cache.base.upsert(k2.clone(), test_answer("google.com"));
+        cache.base.upsert(k3.clone(), test_answer("lycos.com"));
+
+        thread::sleep(Duration::from_millis(75));
+
+        assert_eq!(cache.base.remove_expired(), 2);
+
+        assert!(cache.base.get(&k1).is_none());
+        assert!(cache.base.get(&k2).is_none());
+        assert!(cache.base.get(&k3).is_some());
+    }
+
+    fn test_answer(name: &str) -> DnsAnswer {
+        DnsAnswer::new(String::from(name), 1, 1, 10, 1, Vec::<u8>::new())
+    }
+
+    fn test_key() -> DnsKey {
+        DnsKey::new(String::from("yahoo.com"), 1, 1, 10)
+    }
+
+    fn test_key_from(name: &str, ttl: u32) -> DnsKey {
+        DnsKey::new(String::from(name), 1, 1, ttl)
+    }
+
+    fn test_key_with_ttl(ttl: u32) -> DnsKey {
+        DnsKey::new(String::from("yahoo.com"), 1, 1, ttl)
     }
 }
