@@ -240,7 +240,7 @@ impl DnsMessage {
 }
 
 impl DnsAnswer {
-    fn new(name: String,
+    pub fn new(name: String,
            atype: u16,
            aclass: u16,
            ttl: u32,

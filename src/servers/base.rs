@@ -49,7 +49,7 @@ impl<T> ServerBase<T> where T: Request<T> {
         self.requests.remove(token).and_then(|req| {
             let msg = DnsMessage::parse(&req.get().response_buf.as_ref().unwrap());
             debug!("{:?}", msg);
-            self.cache.write().unwrap().base.add(DnsKey::empty(), msg.answers[0].clone());
+            self.cache.write().unwrap().base.upsert(DnsKey::empty(), msg.answers[0].clone());
             debug!("cached it!");
             return Some(self.responses.push(req))
         });
