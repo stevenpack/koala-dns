@@ -39,8 +39,8 @@ pub enum RequestState {
 pub struct RequestBase {
     pub token: Token,
     pub state: RequestState,
-    pub query_buf: Vec<u8>,
-    pub response_buf: Option<Vec<u8>>,
+    pub query_buf: Vec<u8>, //query without the length prefix
+    pub response_buf: Option<Vec<u8>>, //answer without the length prefix
     pub timeout_handle: Option<Timeout>,
     pub params: RequestParams,
 }
@@ -112,6 +112,7 @@ impl RequestBase {
         response.extend_from_slice(&buf);
         response.truncate(count);
         self.response_buf = Some(response);
+        debug!("buffered {:?} bytes for response", count);
     }
 
     pub fn error_with(&mut self, err_msg: String) {
@@ -137,7 +138,6 @@ impl RequestBase {
 
     pub fn on_receive(&mut self, ctx: &mut RequestCtx, count: usize, buf: &[u8]) {
        if count > 0 {
-           debug!("Received {} bytes", count);
            trace!("{:#?}", DnsMessage::parse(&buf));
            self.buffer_response(&buf, count);
            self.clear_timeout(ctx);

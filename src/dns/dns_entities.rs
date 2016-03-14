@@ -1,7 +1,6 @@
 use dns::bit_cursor::BitCursor;
 use dns::dns_packet::DnsPacket;
 use dns::mut_dns_packet::MutDnsPacket;
-use std::string::FromUtf8Error;
 use buf::*;
 
 #[derive(Debug)]
@@ -320,14 +319,13 @@ impl DnsName {
     }
 
     ///A length octet followed by that many octets as string characters
-    fn parse_label(packet: &mut DnsPacket, len: usize) -> Result<String, FromUtf8Error> {
+    fn parse_label(packet: &mut DnsPacket, len: usize) -> Result<String, String> {
         let mut label = Vec::<u8>::with_capacity(len as usize);
         for i in 0..len {
             match packet.next_u8() {
                 Some(0) | None => {
-                    warn!("Found terminating byte or end of buffer before len ({}) bytes read",
-                          len);
-                    break;
+                    return Err(format!("Found terminating byte or end of buffer before len ({}) bytes read",
+                          len));
                 }
                 Some(byte) => label.insert(i, byte),
             }
@@ -335,7 +333,7 @@ impl DnsName {
         trace!("label bytes {:?}", label);
         let label_str = String::from_utf8(label);
         trace!("label: {:?}", label_str);
-        return label_str;
+        return label_str.map_err( |err| format!("Label to UTF8 parse failure {:?}", err));
     }
 
     fn is_pointer(byte: u8) -> bool {

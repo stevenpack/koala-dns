@@ -8,7 +8,7 @@ use std::thread::JoinHandle;
 use std::sync::{Arc, RwLock};
 use mio::Sender;
 use request::base::{RequestParams};
-use servers::base::Cache;
+use servers::cache::*;
 use servers::udp::UdpServer;
 use servers::tcp::TcpServer;
 
@@ -89,7 +89,7 @@ impl MioServer {
             upstream_addr: upstream_server,
         };
 
-        let cache = Cache::new();
+        let cache = ResolverCache::new();
         let shared_cache = Arc::new(RwLock::new(cache));
 
         let udp_server = UdpServer::new(address, start_token, max_connections, params, shared_cache.clone());
@@ -123,7 +123,7 @@ impl MioServer {
                                  drop(mio_server.tcp_server);
                              })
                              .unwrap_or_else(|e| {
-                                 panic!("Failed to start udp server. Error was {}", e)
+                                 panic!("Failed to start server thread. Error was {}", e)
                              });
         return (tx, run_handle);
     }

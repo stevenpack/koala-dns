@@ -1,8 +1,6 @@
-// These can work if cargo.toml is modified to build lib and bin. Had problems with lints when doing
-#![feature(convert)]
 extern crate koala_dns;
 
-use koala_dns::servers::*;
+use koala_dns::server::*;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::thread;
@@ -12,7 +10,6 @@ const GOOGLE_DNS: &'static str = "8.8.8.8:53";
 const FAKE_DNS: &'static str = "8.8.8.8:9999";
 
 #[test]
-// #[ignore(message="will hang until stop implemented")]
 fn round_trip() {
     let mut server = build_with(12345, String::from_str(GOOGLE_DNS).unwrap(), 2000);
 

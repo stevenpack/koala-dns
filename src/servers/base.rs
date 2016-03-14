@@ -2,39 +2,21 @@ use mio::{EventLoop, EventSet, Token, PollOpt, Evented};
 use mio::util::{Slab};
 use server_mio::{MioServer,RequestCtx};
 use request::base::*;
+use servers::cache::*;
 use std::net::SocketAddr;
 use std::sync::{Arc, RwLock};
 use dns::dns_entities::*;
-use std::collections::HashMap;
-
-#[derive(Debug)]
-pub struct Cache {
-    items: HashMap<String, DnsAnswer>
-}
-
-impl Cache {
-
-    pub fn new() -> Cache {
-        Cache {
-            items: HashMap::<String, DnsAnswer>::new()
-        }
-    }
-
-    pub fn add(&mut self, key: String, answer: DnsAnswer) {
-        self.items.insert(key, answer);
-    }
-}
 
 pub struct ServerBase<T> where T : Request<T> {
     pub requests: Slab<T>,
     pub responses: Vec<T>,
     pub params: RequestParams,
     server_token: Token,
-    cache: Arc<RwLock<Cache>>
+    cache: Arc<RwLock<ResolverCache>>
 }
 
 impl<T> ServerBase<T> where T: Request<T> {
-    pub fn new(requests: Slab<T>, responses: Vec<T>, params: RequestParams, token: Token, cache: Arc<RwLock<Cache>>) -> ServerBase<T> {
+    pub fn new(requests: Slab<T>, responses: Vec<T>, params: RequestParams, token: Token, cache: Arc<RwLock<ResolverCache>>) -> ServerBase<T> {
         ServerBase {
             requests: requests,
             responses: responses,
@@ -67,7 +49,7 @@ impl<T> ServerBase<T> where T: Request<T> {
         self.requests.remove(token).and_then(|req| {
             let msg = DnsMessage::parse(&req.get().response_buf.as_ref().unwrap());
             debug!("{:?}", msg);
-            self.cache.write().unwrap().add("a".to_owned(), msg.answers[0].clone());
+            self.cache.write().unwrap().base.add(DnsKey::empty(), msg.answers[0].clone());
             debug!("cached it!");
             return Some(self.responses.push(req))
         });

@@ -12,6 +12,7 @@ pub struct TcpRequest {
 }
 
 impl Request<TcpRequest> for TcpRequest {
+
     fn new_with(client_addr: SocketAddr, request: RequestBase) -> TcpRequest {
         return TcpRequest {
             upstream_socket: None,
@@ -45,7 +46,15 @@ impl Request<TcpRequest> for TcpRequest {
         match self.upstream_socket {
             Some(ref mut sock) => {
                 match sock.read(&mut buf) {
-                    Ok(count) => self.base.on_receive(ctx, count, &buf),
+                    Ok(count) => {
+                        //store the response without the prefix
+                        debug!("Received {} bytes", count);
+                        if count < TcpRequest::PREFIX_LEN {
+                            warn!("tcp: Only received length prefix. No content");
+                            return;
+                        }
+                        self.base.on_receive(ctx, count - TcpRequest::PREFIX_LEN , &buf[TcpRequest::PREFIX_LEN ..count]);
+                     },
                     Err(e) => self.base.on_receive_err(ctx, e)
                 }
             }
@@ -58,11 +67,11 @@ impl Request<TcpRequest> for TcpRequest {
         match self.upstream_socket {
             Some(ref mut sock) => {
                 // prefix with length
-                let len = self.base.query_buf.len() as u8;
-                debug!("{:?} bytes to send (+2b prefix)", len);
                 Self::prefix_with_length(&mut self.base.query_buf);
+                let len = self.base.query_buf.len() as usize;
+                debug!("{:?} bytes to send (inc 2b prefix)", len);
                 match sock.write_all(&mut self.base.query_buf.as_slice()) {
-                    Ok(_) => self.base.on_forward(ctx, len as usize, sock),
+                    Ok(_) => self.base.on_forward(ctx, len, sock),
                     Err(e) => self.base.on_forward_err(ctx, e)
                 }
             },
@@ -72,19 +81,23 @@ impl Request<TcpRequest> for TcpRequest {
 }
 
 impl TcpRequest {
+    const PREFIX_LEN: usize = 2;
 
     fn prefix_with_length(buf: &mut Vec<u8>) {
         //TCP responses are prefixed with a 2-byte length
         let len = buf.len() as u8;
         buf.insert(0, len);
         buf.insert(0, 0);
+        debug!("Added 2b prefix of len: {:?}", len);
     }
 
     pub fn send(&self, socket: &mut TcpStream) {
         match self.base.response_buf {
             Some(ref response) => {
-                debug!("{:?} bytes to send", response.len());
-                match socket.write(&mut &response.as_slice()) {
+                debug!("{:?} bytes in response", response.len());
+                let mut prefixed_response = response.clone();
+                Self::prefix_with_length(&mut prefixed_response);
+                match socket.write(&mut prefixed_response.as_slice()) {
                     Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, self.client_addr),
                     Err(e) => error!("Failed to send. {:?} Error was {:?}", self.client_addr, e),
                 }

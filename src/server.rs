@@ -34,6 +34,8 @@ impl ServerOps for Server {
     fn start(&mut self) {
         let run_handle = self.begin_start();
         let _ = run_handle.join();
+
+        debug!("Thread returned. TODO: restart it!");
     }
 
     fn begin_start(&mut self) -> JoinHandle<()> {
