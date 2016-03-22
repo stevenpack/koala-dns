@@ -3,21 +3,28 @@ use dns::dns_packet::DnsPacket;
 use dns::mut_dns_packet::MutDnsPacket;
 use buf::*;
 
+//note: qdcount doesn't really make sense and most dns servers don't respect it. How do you
+//correlate the multiple answers to multiple questions? what do the flags apply to?
+//TODO: return Result<T,DnsParseError> for parsing
+
 #[derive(Debug)]
+#[derive(Clone)]
 pub struct DnsMessage {
     pub header: DnsHeader,
-    pub questions: Vec<DnsQuestion>,
+    pub question: DnsQuestion,
     pub answers: Vec<DnsAnswer>,
     pub msg_type: DnsMessageType,
 }
 
 #[derive(Debug)]
+#[derive(Clone)]
 pub enum DnsMessageType {
     Query,
     Reply,
 }
 
 #[derive(Debug)]
+#[derive(Clone)]
 pub struct DnsHeader {
     pub id: u16,
     pub qr: bool,
@@ -36,6 +43,9 @@ pub struct DnsHeader {
 
 #[derive(Debug)]
 #[derive(Clone)]
+#[derive(Eq)]
+#[derive(PartialEq)]
+#[derive(PartialOrd)]
 pub struct DnsAnswer {
     pub name: String,
     pub atype: u16,
@@ -46,6 +56,7 @@ pub struct DnsAnswer {
 }
 
 #[derive(Debug)]
+#[derive(Clone)]
 pub struct DnsQuestion {
     pub qname: String,
     pub qtype: u16,
@@ -185,48 +196,46 @@ impl DnsMessage {
         let header = DnsHeader::parse(&mut packet);
         match header.qr {
             QR_QUERY => {
-                let questions = Self::parse_questions(&mut packet, header.qdcount);
-                return Self::new_query(header, questions);
+                let question = Self::parse_question(&mut packet, header.qdcount);
+                return Self::new_query(header, question);
             }
             QR_RESPONSE => {
-                let questions = Self::parse_questions(&mut packet, header.qdcount);
+                let question = Self::parse_question(&mut packet, header.qdcount);
                 let answers = Self::parse_answers(&mut packet, header.ancount);
-                return Self::new_reply(header, questions, answers);
+                return Self::new_reply(header, question, answers);
             }
         }
     }
 
-    fn new_query(header: DnsHeader, questions: Vec<DnsQuestion>) -> DnsMessage {
+    fn new_query(header: DnsHeader, questions: DnsQuestion) -> DnsMessage {
         return Self::new(header, questions, vec![], DnsMessageType::Query);
     }
 
     fn new_reply(header: DnsHeader,
-                 questions: Vec<DnsQuestion>,
+                 question: DnsQuestion,
                  answers: Vec<DnsAnswer>)
                  -> DnsMessage {
-        return Self::new(header, questions, answers, DnsMessageType::Reply);
+        return Self::new(header, question, answers, DnsMessageType::Reply);
     }
 
     fn new(header: DnsHeader,
-           questions: Vec<DnsQuestion>,
+           question: DnsQuestion,
            answers: Vec<DnsAnswer>,
            msg_type: DnsMessageType)
            -> DnsMessage {
         return DnsMessage {
             header: header,
-            questions: questions,
+            question: question,
             answers: answers,
             msg_type: msg_type,
         };
     }
 
-    fn parse_questions(packet: &mut DnsPacket, qdcount: u16) -> Vec<DnsQuestion> {
-        let mut questions = Vec::<DnsQuestion>::with_capacity(qdcount as usize);
-        for _ in 0..qdcount {
-            let question = DnsQuestion::parse(packet);
-            questions.push(question);
+    fn parse_question(packet: &mut DnsPacket, qdcount: u16) -> DnsQuestion {
+        if qdcount != 1 {
+            warn!("Invalid qdcount {:?} only 1 is valid. Ignoring other quesitons", qdcount);
         }
-        return questions;
+        DnsQuestion::parse(packet)
     }
 
     fn parse_answers(packet: &mut DnsPacket, ancount: u16) -> Vec<DnsAnswer> {
@@ -256,6 +265,10 @@ impl DnsAnswer {
             rdata: rdata,
         };
     }
+
+    // pub fn to_bytes(&self) -> Vec<u8> {
+        
+    // }
 
     fn parse(packet: &mut DnsPacket) -> DnsAnswer {
         let name = DnsName::parse(packet);
@@ -389,7 +402,7 @@ mod tests {
         // todo: more flags
         // todo: assert_eq!(0, OpCode::Query);
         assert_eq!(1, reply.header.qdcount);
-        assert_eq!(1, reply.questions.len());
+        //assert_eq!(1, reply.questions.len());
         assert_eq!(3, reply.header.ancount);
         assert_eq!(3, reply.answers.len());
 
@@ -440,8 +453,8 @@ mod tests {
         assert_eq!(2161, q.header.id);
         // todo: assert_eq!(0, OpCode::Query);
         assert_eq!(1, q.header.qdcount);
-        assert_eq!(1, q.questions.len());
-        assert_eq!("yahoo.com", q.questions[0].qname);
+        //assert_eq!(1, q.questions.len());
+        assert_eq!("yahoo.com", q.question.qname);
         // todo: more flags
     }
 

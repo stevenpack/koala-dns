@@ -16,7 +16,7 @@ mod dns;
 mod request;
 mod buf;
 mod servers;
-
+mod cache;
 use server::ServerOps;
 
 fn main() {

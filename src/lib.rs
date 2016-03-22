@@ -17,3 +17,4 @@ mod dns;
 mod request;
 mod buf;
 pub mod servers;
+mod cache;

@@ -2,8 +2,9 @@ use std::net::SocketAddr;
 use std::io::Error;
 use mio::{Token, Timeout, Handler, EventSet, Evented, PollOpt};
 use server_mio::RequestCtx;
-use dns::dns_entities::DnsMessage;
-use dns::dns_entities::DnsHeader;
+use dns::dns_entities::*;
+use std::sync::{Arc, RwLock};
+use cache::*;
 
 pub trait Request<T> {
     fn new_with(client_addr: SocketAddr, request: RequestBase) -> T;
@@ -20,6 +21,24 @@ pub trait Request<T> {
             _ => debug!("Nothing to do for this state {:?}", self.get().state),
         }
     }
+
+    fn ready_cache(&mut self, ctx: &mut RequestCtx, cache: Arc<RwLock<Cache>>) {
+        //if not in cache...
+        let query = DnsMessage::parse(&self.get().query_buf);
+        let q = query.question;
+        let key = CacheKey::new(q.qname, q.qtype, q.qclass);
+        match cache.read() {
+            Ok(the_cache) => {
+                let answers = the_cache.get(&key);
+                debug!("Could answer with {:?} based on key {:?}", answers, key);
+                //self.response
+            }
+            Err(e) => error!("Couldn't get read lock {:?}", e)
+        }
+
+        self.ready(ctx);
+    }
+
     fn accept(&mut self, ctx: &mut RequestCtx);
     fn forward(&mut self, ctx: &mut RequestCtx);
     fn receive(&mut self, ctx: &mut RequestCtx);
@@ -32,6 +51,7 @@ pub enum RequestState {
     Accepted,
     Forwarded,
     ResponseReceived,
+    ResponseFromCache,
     Error,
 }
 
@@ -40,7 +60,9 @@ pub struct RequestBase {
     pub token: Token,
     pub state: RequestState,
     pub query_buf: Vec<u8>, //query without the length prefix
+    //pub query: Option<DnsMessage>,
     pub response_buf: Option<Vec<u8>>, //answer without the length prefix
+    pub response: Option<DnsMessage>,
     pub timeout_handle: Option<Timeout>,
     pub params: RequestParams,
 }
@@ -57,8 +79,10 @@ impl RequestBase {
         return RequestBase {
             token: token,
             state: RequestState::New,
+            //query: None,
             query_buf: query_buf,
             response_buf: None,
+            response: None,
             timeout_handle: None,
             params: params,
         };
@@ -85,16 +109,9 @@ impl RequestBase {
     }
 
     pub fn clear_timeout(&mut self, ctx: &mut RequestCtx) {
-
-        match self.timeout_handle {
-            Some(handle) => {
-                if ctx.event_loop.clear_timeout(handle) {
-                    debug!("Timeout cleared for {:?}", ctx.token);
-                } else {
-                    warn!("Could not clear timeout for {:?}", ctx.token);
-                }
-            }
-            None => warn!("Timeout handle not present"),
+        if let Some(handle) = self.timeout_handle {
+            let result = ctx.event_loop.clear_timeout(handle);
+            debug!("Timeout cleared result for {:?}={:?}", ctx.token, result);
         }
     }
 
@@ -120,17 +137,17 @@ impl RequestBase {
         debug!("{}", err_msg);
         let req = DnsMessage::parse(&self.query_buf);
         let reply = DnsHeader::new_error(req.header, 2);
-        let vec = reply.to_bytes();
-        self.response_buf = Some(vec);
+        self.response_buf = Some(reply.to_bytes());
     }
 
     pub fn has_reply(&self) -> bool {
-        return self.response_buf.is_some();
+        return self.response_buf.is_some() || self.response.is_some();
     }
 
     pub fn accept(&mut self, ctx: &mut RequestCtx, sock: &Evented) {
         debug_assert!(ctx.events.is_readable());
         self.set_state(RequestState::Accepted);
+        debug!("{:?}", DnsMessage::parse(&self.query_buf));
         //todo: if need to forward...
         self.register_upstream(ctx, EventSet::writable(), sock);
         debug!("Accepted and registered upstream");

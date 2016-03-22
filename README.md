@@ -5,11 +5,10 @@ DNS Server in Rust
 
 ### TODO
 - [more] Integration tests
-- TCP / common traits
 - IPv6
 - Zone files
   - [some] serializing dns_entities to buffers
-- Other RFCs
+- Other RFCs (e.g. EDNS)
 - Check MIO part with carllerche, particularly reading whole packet and
   transition from reading to reading/writing.
 

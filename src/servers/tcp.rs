@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use request::base::*;
 use request::tcp::TcpRequest;
 use servers::base::*;
-use servers::cache::*;
+use cache::*;
 use std::sync::{Arc, RwLock};
 
 pub struct TcpServer {
@@ -20,7 +20,7 @@ pub struct TcpServer {
 impl TcpServer {
     pub const TCP_SERVER_TOKEN: Token = Token(0);
 
-    pub fn new(addr: SocketAddr, start_token: usize, max_connections: usize, params: RequestParams, cache: Arc<RwLock<ResolverCache>>) -> TcpServer {
+    pub fn new(addr: SocketAddr, start_token: usize, max_connections: usize, params: RequestParams, cache: Arc<RwLock<Cache>>) -> TcpServer {
         let listener = Self::bind_tcp(addr);
         let requests = Slab::new_starting_at(Token(start_token), max_connections);
         let responses = Vec::<TcpRequest>::new();
@@ -88,14 +88,11 @@ impl TcpServer {
         debug_assert!(ctx.events.is_readable());
         match self.pending.remove(&ctx.token) {
             Some(mut stream) => {
-                let buf = Self::receive_tcp(&mut stream);
+                Self::receive_tcp(&mut stream);
                 self.accepted.insert(ctx.token, stream);
                 debug!("tcp accepted {:?}", ctx.token);
                 match self.base.requests.get_mut(ctx.token) {
-                    Some(request) => {
-                        request.get_mut().query_buf = buf;
-                        request.ready(ctx);
-                    }
+                    Some(request) => request.ready(ctx),
                     None => error!("Request {:?} not found", ctx.token),
                 }
             }

@@ -1,87 +1,104 @@
 use dns::dns_entities::*;
 use std::cmp::Ordering;
 use std::fmt::Debug;
-use std::collections::{HashMap, BTreeSet};
-use std::hash::Hash;
+use std::collections::{HashMap, BTreeSet, BTreeMap};
+use std::hash::*;
+use std::fmt::{Formatter,Error};
 use time::{Duration,Tm};
 use time;
 
-#[derive(Debug)]
 #[derive(PartialOrd)]
+#[derive(PartialEq)]
 #[derive(Eq)]
-#[derive(Hash)]
 #[derive(Clone)]
+#[derive(Hash)]
 pub struct DnsKey {
     aname: String,
     atype: u16,
     aclass: u16,
+}
+
+impl Debug for DnsKey {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        write!(f, "DnsKey[ aname:{:?}, atype:{:?}, aclass:{:?}, ttl:{:?}, expiry:{} ",
+            self.aname, self.atype, self.aclass, self.ttl, self.expiry.rfc822())
+    }
+}
+
+pub struct ExpiryData {
     ttl: u32,
-    expiry: Tm
+    expiry: Tm    
 }
 
 pub trait Expires {
+    fn calc_expiry(ttl: u32) -> Tm {
+        time::now_utc() + Duration::milliseconds(ttl as i64)
+    }
+    fn ttl(&self) -> u32;
     fn expires_at(&self) -> Tm;
     fn is_expired(&self) -> bool {
         time::now_utc() > self.expires_at()
     }
-}
 
-impl PartialEq for DnsKey {
-    //identity fields but not ttl
-    fn eq(&self, other: &Self) -> bool {
-        self.aname == other.aname &&
-        self.atype == other.atype &&
-        self.aclass == other.aclass
+    fn x() -> bool {
+        true
     }
 }
 
-impl Ord for DnsKey {
+impl Expires for ExpiryData {
+    fn expires_at(&self) -> Tm {
+        self.expiry
+    }
+}
+
+impl Ord for ExpiryData {
     //order by ttl for fast iteration and expiry
     fn cmp(&self, other: &Self) -> Ordering {
         self.ttl.cmp(&other.ttl)
     }
 }
 
-impl Expires for DnsKey {
-    fn expires_at(&self) -> Tm {
-        self.expiry
-    }
-}
-
 impl DnsKey {
     pub fn empty() -> DnsKey {
-        DnsKey::new(String::from(""), 0, 0, 0)
+        DnsKey::new(String::from(""), 0, 0)
+    }
+
+    pub fn from_query(query: DnsQuestion) -> DnsKey {
+        DnsKey::new(query.qname, query.qtype, query.qclass)
     }
 
     pub fn new(aname: String, atype: u16, aclass: u16, ttl: u32) -> DnsKey {
         DnsKey {
             aname: aname,
             atype: atype,
-            aclass: aclass,
-            ttl: ttl,
-            expiry: time::now_utc() + Duration::milliseconds(ttl as i64)
+            aclass: aclass
         }
     }
 }
 
-#[derive(Debug)]
-pub struct ResolverCache {
-    pub base: ExpiringCache<DnsKey, DnsAnswer>
+pub struct CacheEntry {
+    expiry_data: ExpiryData,
+    answers: Vec<DnsAnswer>
 }
 
-impl ResolverCache {
-    pub fn new() -> ResolverCache {
-        let cache = ExpiringCache::<DnsKey, DnsAnswer>::new();
-        return ResolverCache {
+#[derive(Debug)]
+pub struct Cache {
+    pub base: ExpiringCache<DnsKey, CacheEntry>
+}
+
+impl Cache {
+    pub fn new() -> Cache {
+        let cache = ExpiringCache::<DnsKey, Vec<DnsAnswer>>::new();
+        return Cache {
             base: cache
         }
     }
 }
 
 #[derive(Debug)]
-pub struct ExpiringCache<K,V> where K : Eq + Hash + Ord + Clone + Expires + Debug {
-    items: HashMap<K, V>, //hashmap for fast get
-    keys: BTreeSet<K> //btreeset for storing keys in order they need to be removed
+pub struct ExpiringCache<K,V> where K : Eq + Hash + Clone + Debug, V : Ord + Expires {
+    items: HashMap<K,V>, //hashmap for fast get
+    keys: BTreeMap<&V,K> //btreemap for fast iterating which keys need to be expired
 }
 
 impl<K,V> ExpiringCache<K,V> where K : Eq + Hash + Ord + Clone + Expires + Debug {
@@ -89,7 +106,7 @@ impl<K,V> ExpiringCache<K,V> where K : Eq + Hash + Ord + Clone + Expires + Debug
     pub fn new() -> ExpiringCache<K,V> {
         ExpiringCache {
             items: HashMap::<K, V>::new(),
-            keys: BTreeSet::<K>::new()
+            keys: BTreeMap::<K, &V>::new()
         }
     }
 
@@ -105,11 +122,11 @@ impl<K,V> ExpiringCache<K,V> where K : Eq + Hash + Ord + Clone + Expires + Debug
     }
 
     pub fn get(&self, key: &K) -> Option<&V> {
-        if key.is_expired() {
-            println!("key expired {:?}", key);
-            return None
+        let val = self.items.get(key);
+        if val.is_expired() {
+            return None;
         }
-        return self.items.get(key);
+        return val;
     }
 
     // fn remove(&mut self, key: &K) -> bool {
@@ -129,8 +146,8 @@ impl<K,V> ExpiringCache<K,V> where K : Eq + Hash + Ord + Clone + Expires + Debug
         //TODO: faster with btreeset.range() and difference()?
         let mut to_remove = Vec::<K>::new();
         let mut count = 0;
-        for key in self.keys.iter() {
-            if key.is_expired() {
+        for entry in self.keys.iter() {
+            if entry.Value.is_expired() {
                 println!("removing {:?}", key);
                 self.items.remove(&key);
                 to_remove.push(key.clone());
@@ -169,11 +186,12 @@ mod tests {
 
     #[test]
     fn upsert_insert() {
-        let mut cache = ResolverCache::new();
+        let mut cache = Cache::new();
         let key = test_key();
         cache.base.upsert(key.clone(), test_answer("yahoo.com"));
-        let val = cache.base.get(&key);
-        assert_eq!("yahoo.com", val.expect("upserted key missing").name);
+        let key2 = test_key();
+        let val = cache.base.get(&key2);
+        assert_eq!("yahoo.com", val.expect("upserted key missing")[0].name);
     }
 
     // #[test]
@@ -192,7 +210,7 @@ mod tests {
 
     #[test]
     fn remove_expired() {
-        let mut cache = ResolverCache::new();
+        let mut cache = Cache::new();
         let k1 = test_key_from("yahoo.com", 5);
         let k2 = test_key_from("google.com", 50);
         let k3 = test_key_from("lycos.com", 100);
@@ -207,10 +225,12 @@ mod tests {
         assert!(cache.base.get(&k1).is_none());
         assert!(cache.base.get(&k2).is_none());
         assert!(cache.base.get(&k3).is_some());
+        assert_eq!(cache.base.get(&k3).unwrap()[0].name, "lycos.com");
     }
 
-    fn test_answer(name: &str) -> DnsAnswer {
-        DnsAnswer::new(String::from(name), 1, 1, 10, 1, Vec::<u8>::new())
+    fn test_answer(name: &str) -> Vec<DnsAnswer> {
+        let answer = DnsAnswer::new(String::from(name), 1, 1, 10, 1, Vec::<u8>::new());
+        vec![answer]
     }
 
     fn test_key() -> DnsKey {

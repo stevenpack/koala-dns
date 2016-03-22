@@ -8,7 +8,7 @@ use std::thread::JoinHandle;
 use std::sync::{Arc, RwLock};
 use mio::Sender;
 use request::base::{RequestParams};
-use servers::cache::*;
+use cache::*;
 use servers::udp::UdpServer;
 use servers::tcp::TcpServer;
 
@@ -62,7 +62,7 @@ pub struct RequestCtx<'a> {
 }
 
 impl<'a> RequestCtx<'a> {
-    pub fn new(event_loop: &'a mut EventLoop<MioServer>,
+    pub fn new(event_loop: &mut EventLoop<MioServer>,
             events: EventSet,
             token: Token)
             -> RequestCtx {
@@ -89,7 +89,7 @@ impl MioServer {
             upstream_addr: upstream_server,
         };
 
-        let cache = ResolverCache::new();
+        let cache = Cache::new();
         let shared_cache = Arc::new(RwLock::new(cache));
 
         let udp_server = UdpServer::new(address, start_token, max_connections, params, shared_cache.clone());
