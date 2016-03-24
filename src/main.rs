@@ -18,9 +18,24 @@ mod buf;
 mod servers;
 mod cache;
 use server::ServerOps;
+use std::env;
+use log::{LogRecord, LogLevelFilter};
+use env_logger::LogBuilder;
 
 fn main() {
-	env_logger::init().unwrap_or_else(|err| println!("Failed to initialize logger. {:?}", err));
+	let format = |record: &LogRecord| {
+        format!("{} {:5} - {}", time::now().asctime(), record.level(), record.args())
+    };
+
+    let mut builder = LogBuilder::new();
+    builder.format(format).filter(None, LogLevelFilter::Info);
+
+    if env::var("RUST_LOG").is_ok() {
+       builder.parse(&env::var("RUST_LOG").unwrap());
+    }
+
+    builder.init().unwrap_or_else(|err| println!("Failed to initialize logger. {:?}", err));
+	//env_logger::init().unwrap_or_else(|err| println!("Failed to initialize logger. {:?}", err));
 
     let config = command_line::parse_args();
     let mut server = server::Server::new(config.port, config.server, config.timeout);

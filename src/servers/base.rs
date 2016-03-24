@@ -50,12 +50,9 @@ impl<T> ServerBase<T> where T: Request<T> {
             let msg = DnsMessage::parse(&req.get().response_buf.as_ref().unwrap());
             debug!("{:?}", msg);
             //TODO: TTL must be same for all answers? Or the min?
-            let ttl = msg.answers[0].ttl;
-            let q = msg.question;
-            let key = CacheKey::new(q.qname, q.qtype, q.qclass);
-            debug!("cached it! with key {:?}", key);
-            let cache_entry = CacheEntry::new(key.clone(), msg.answers, ttl);
-            self.cache.write().unwrap().upsert(key, cache_entry);
+            if let Some(cache_entry) = CacheEntry::from(&msg) {
+                self.cache.write().unwrap().upsert(cache_entry.key.clone(), cache_entry);    
+            }            
             return Some(self.responses.push(req))
         });
         debug!("queued {:?}", token);
@@ -70,7 +67,7 @@ impl<T> ServerBase<T> where T: Request<T> {
     }
 
     pub fn timeout(&mut self, ctx: &mut RequestCtx) {
-        debug!("Timeout for {:?}", ctx.token);
+        debug!("Timeout for {:?} {:?}", ctx.token, ctx.events);
         self.requests.get_mut(ctx.token).unwrap().get_mut().on_timeout(ctx.token);
     }
 
@@ -79,7 +76,7 @@ impl<T> ServerBase<T> where T: Request<T> {
     }
 
     pub fn request_ready(&mut self, ctx: &mut RequestCtx) {
-        debug!("request ready {:?}", ctx.token);
+        debug!("Request for {:?} {:?}", ctx.token, ctx.events);
 
         let mut queue_response = false;
         match self.requests.get_mut(ctx.token) {

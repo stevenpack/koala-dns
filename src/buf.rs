@@ -19,7 +19,10 @@ pub trait DirectAccessBuf {
 }
 
 pub trait BufRead : DirectAccessBuf {
-    fn buf(&self) -> &[u8];
+    fn buf(&self) -> &Vec<u8>;
+    fn capacity(&self) -> usize {
+        self.buf().capacity()
+    }
 
     fn peek_u8(&self) -> Option<u8> {
         if self.pos() >= self.len() {
@@ -82,40 +85,67 @@ pub trait BufRead : DirectAccessBuf {
 
 
 pub trait BufWrite : BufRead {
-    fn buf(&mut self) -> &mut [u8];
+    fn buf(&mut self) -> &mut Vec<u8>;
 
     fn write_u8(&mut self, byte: u8) -> bool {
-        if self.pos() >= self.len() {
+        println!("u8 self.pos() {:?} >= {:?} self.len()", self.pos(), self.capacity());
+        if self.pos() >= self.capacity() {            
             return false;
         }
-        self.buf()[self.pos()] = byte;
+        let pos = self.pos();
+        self.buf().insert(pos, byte);
         self.advance(1);
         return true;
     }
 
     fn write_u16(&mut self, bytes: u16) -> bool {
-        if self.pos() + 1 >= self.len() {
+        println!("u16 self.pos() {:?} >= {:?} self.len()", self.pos(), self.capacity());
+        if self.pos() + 1 >= self.capacity() {
             return false;
         }
 
         let pos = self.pos();
         // as takes last (rightmost) bits
-        self.buf()[pos] = (bytes >> 8) as u8;
-        self.buf()[pos + 1] = bytes as u8;
+        //TODO: perf: do this in reverse would prevent shifting
+        self.buf().insert(pos, (bytes >> 8) as u8);
+        self.buf().insert(pos + 1, bytes as u8);
         self.advance(2);
         return true;
     }
 
     fn write_u32(&mut self, bytes: u32) -> bool {
-        if self.pos() + 3 >= self.len() {
+        println!("u32 self.pos() {:?} >= {:?} self.len()", self.pos(), self.capacity());
+        if self.pos() + 3 >= self.capacity() {
             return false;
         }
         let pos = self.pos();
-        self.buf()[pos] = (bytes >> 24) as u8;
-        self.buf()[pos + 1] = (bytes >> 16) as u8;
-        self.buf()[pos + 2] = (bytes >> 8) as u8;
-        self.buf()[pos + 3] = bytes as u8;
+        self.buf().insert(pos, (bytes >> 24) as u8);
+        self.buf().insert(pos + 1, (bytes >> 16) as u8);
+        self.buf().insert(pos + 2, (bytes >> 8) as u8);
+        self.buf().insert(pos + 3, bytes as u8);
         self.advance(4);
         return true;
     }
+
+    fn write_bytes(&mut self, bytes: Vec<u8>) -> bool {
+        println!("u8 self.pos() {:?} >= {:?} self.len()", self.pos(), self.len());
+        if self.pos() + bytes.len() > self.capacity() {
+            return false;
+        }
+        for byte in bytes {
+            self.write_u8(byte);
+        }
+        true
+    }
+}
+
+pub trait IntoBytes {
+    fn to_bytes(&self) -> Vec<u8> {
+        //TODO: capacity...
+        let mut buf = Vec::<u8>::with_capacity(4096);
+        self.write(&mut buf);
+        debug!("{:?} bytes from to_bytes()", buf.len());
+        buf
+    }
+    fn write(&self, mut buf: &mut Vec<u8>);
 }

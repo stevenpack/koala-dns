@@ -101,6 +101,11 @@ impl MioServer {
                                     EventSet::readable(),
                                     PollOpt::edge() | PollOpt::oneshot());
 
+          let _ = event_loop.register(&udp_server.server_socket,
+                                    UdpServer::UDP_SERVER_TOKEN,
+                                    EventSet::readable(),
+                                    PollOpt::edge() | PollOpt::oneshot());
+
         let _ = event_loop.register(&tcp_server.server_socket,
                                     TcpServer::TCP_SERVER_TOKEN,
                                     EventSet::readable(),

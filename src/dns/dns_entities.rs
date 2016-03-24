@@ -18,6 +18,8 @@ pub struct DnsMessage {
 
 #[derive(Debug)]
 #[derive(Clone)]
+#[derive(Eq)]
+#[derive(PartialEq)]
 pub enum DnsMessageType {
     Query,
     Reply,
@@ -76,6 +78,19 @@ pub const QR_RESPONSE: bool = true;
 //     Status=2
 // }
 
+impl IntoBytes for DnsMessage {
+
+    fn write(&self, mut buf: &mut Vec<u8>) {
+        self.header.write(buf);
+        self.question.write(buf);
+        if self.msg_type == DnsMessageType::Reply {
+            for answer in self.answers.iter() {
+                answer.write(buf);
+            }    
+        }        
+    }
+}
+
 impl DnsHeader {
     pub fn new_error(request_header: DnsHeader, rcode: u8) -> DnsHeader {
         let header = DnsHeader {
@@ -96,33 +111,7 @@ impl DnsHeader {
         return header;
     }
 
-    // todo: trait?
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut buf = vec![0; 96];
-        let mut bytes = buf.as_mut_slice();
-        let mut packet = MutDnsPacket::new(bytes);
-        packet.write_u16(self.id);
-        match packet.next_u16() {
-            Some(val) => {
-                let mut bit_cursor = BitCursor::new_with(val);
-                bit_cursor.write_bool(true); //qr
-                bit_cursor.write_u4(0); //opcode
-                bit_cursor.write_bool(false);
-                bit_cursor.write_bool(false);
-                bit_cursor.write_bool(true);
-                bit_cursor.write_bool(true);
-                bit_cursor.write(3, 0); //z
-                bit_cursor.write_u4(self.rcode); //rcode
-                bit_cursor.seek(0);
-                packet.seek(2);
-                packet.write_u16(bit_cursor.next_u16());
-            }
-            None => {}
-        }
-        let mut vec = Vec::from(packet.buf());
-        vec.truncate(12); //12 bytes in the header
-        return vec;
-    }
+   
 
     fn parse(packet: &mut DnsPacket) -> DnsHeader {
         // todo: see bitflags macro
@@ -190,8 +179,31 @@ impl DnsHeader {
     }
 }
 
+impl IntoBytes for DnsHeader {
+
+    fn write(&self, mut buf: &mut Vec<u8>) {
+        let mut packet = MutDnsPacket::new(&mut buf);
+        let res = packet.write_u16(self.id);
+        println!("res: {:?}", res);
+        if let Some(val) = packet.next_u16() {
+            let mut bit_cursor = BitCursor::new_with(val);
+            bit_cursor.write_bool(true); //qr
+            bit_cursor.write_u4(0); //opcode
+            bit_cursor.write_bool(false);
+            bit_cursor.write_bool(false);
+            bit_cursor.write_bool(true);
+            bit_cursor.write_bool(true);
+            bit_cursor.write(3, 0); //z
+            bit_cursor.write_u4(self.rcode); //rcode
+            bit_cursor.seek(0);
+            packet.seek(2);
+            packet.write_u16(bit_cursor.next_u16());
+        }
+    }
+}
+
 impl DnsMessage {
-    pub fn parse(buf: &[u8]) -> DnsMessage {
+    pub fn parse(buf: &Vec<u8>) -> DnsMessage {
         let mut packet = DnsPacket::new(buf);
         let header = DnsHeader::parse(&mut packet);
         match header.qr {
@@ -211,7 +223,7 @@ impl DnsMessage {
         return Self::new(header, questions, vec![], DnsMessageType::Query);
     }
 
-    fn new_reply(header: DnsHeader,
+    pub fn new_reply(header: DnsHeader,
                  question: DnsQuestion,
                  answers: Vec<DnsAnswer>)
                  -> DnsMessage {
@@ -246,6 +258,10 @@ impl DnsMessage {
         }
         return answers;
     }
+
+    pub fn first_answer(&self) -> Option<&DnsAnswer> {
+        self.answers.get(0)
+    }
 }
 
 impl DnsAnswer {
@@ -266,9 +282,7 @@ impl DnsAnswer {
         };
     }
 
-    // pub fn to_bytes(&self) -> Vec<u8> {
-        
-    // }
+   
 
     fn parse(packet: &mut DnsPacket) -> DnsAnswer {
         let name = DnsName::parse(packet);
@@ -278,6 +292,28 @@ impl DnsAnswer {
         let rdlength = packet.next_u16().unwrap_or_default();
         let rdata = packet.next_bytes(rdlength as usize);
         return Self::new(name, atype, aclass, ttl, rdlength, rdata);
+    }
+}
+
+impl IntoBytes for DnsAnswer {
+
+    fn write(&self, mut buf: &mut Vec<u8>) {
+        let mut packet = MutDnsPacket::new(&mut buf);
+        packet.write_bytes(DnsName::to_bytes(self.name.clone()));
+        packet.write_u16(self.atype);
+        packet.write_u16(self.aclass);
+        packet.write_u16(self.rdlength);
+        packet.write_bytes(self.rdata.clone());
+    }
+}
+
+impl IntoBytes for DnsQuestion {
+
+    fn write(&self, mut buf: &mut Vec<u8>) {
+        let mut packet = MutDnsPacket::new(&mut buf);
+        packet.write_bytes(DnsName::to_bytes(self.qname.clone()));
+        packet.write_u16(self.qtype);
+        packet.write_u16(self.qclass);
     }
 }
 
@@ -300,6 +336,19 @@ impl DnsQuestion {
 }
 
 impl DnsName {
+
+    fn to_bytes(name: String) -> Vec<u8> {        
+        let mut buf = Vec::<u8>::new(); //TODO: could come up with a good estimate here
+        // buf.insert(0, name.len() as u)
+        // buf.append(name.into_bytes())
+        let labels: Vec<&str> = name.split(".").collect();
+        for label in labels {
+            buf.push(label.len() as u8);
+            buf.append(&mut String::from(label).into_bytes());
+        }
+        //TODO compression (we do it in parsing)
+        buf
+    }
     ///A series of labels separatd by dots
     // labels may be actual labels, or pointers to previous instances of labels
     fn parse(packet: &mut DnsPacket) -> String {
@@ -375,7 +424,14 @@ impl DnsName {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use test::Bencher;
+    use buf::*;
+    //use test::Bencher;
+
+    #[test]
+    fn to_bytes() {
+       let msg = DnsMessage::parse(&test_query_buf());
+       println!("bytes: {:?}", msg.to_bytes());
+    }
 
     fn test_query_buf() -> Vec<u8> {
         //
@@ -386,94 +442,95 @@ mod tests {
         return vec![8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111,
                     109, 0, 0, 1, 0, 1];
     }
-
-    fn test_reply_buf() -> Vec<u8> {
-        return vec![8, 113, 129, 128, 0, 1, 0, 3, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99,
-                    111, 109, 0, 0, 1, 0, 1, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 206, 190, 36,
-                    45, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 98, 139, 183, 24, 192, 12, 0, 1,
-                    0, 1, 0, 0, 0, 10, 0, 4, 98, 138, 253, 109];
-    }
-
-    #[test]
-    fn parse_reply() {
-        let reply = DnsMessage::parse(&test_reply_buf());
-        println!("{:?}", reply);
-        assert_eq!(2161, reply.header.id);
-        // todo: more flags
-        // todo: assert_eq!(0, OpCode::Query);
-        assert_eq!(1, reply.header.qdcount);
-        //assert_eq!(1, reply.questions.len());
-        assert_eq!(3, reply.header.ancount);
-        assert_eq!(3, reply.answers.len());
-
-        let ref a = reply.answers[0];
-        assert_eq!("yahoo.com", a.name);
-        assert_eq!(10, a.ttl);
-        assert_eq!(4, a.rdlength);
-        assert_eq!(vec![206, 190, 36, 45], a.rdata);
-        // todo: other answers
-
-    }
-
-    #[test]
-    fn parse_query() {
-        // query
-        //
-        // [8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0, 0,
-        // 1, 0, 1]
-        //
-        // reply
-        //
-        // [8, 113, 129, 128, 0, 1, 0, 3, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0,
-        // 0, 1, 0, 1, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 206, 190, 36, 45, 192, 12, 0, 1, 0,
-        // 1, 0, 0, 0, 10, 0, 4, 98, 139, 183, 24, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 98, 138
-        // , 253, 109]
-        //
-        // dig yahoo.com @127.0.0.1 -p 10001
-        // ; <<>> DiG 9.8.3-P1 <<>> yahoo.com @127.0.0.1 -p 10001
-        // ;; global options: +cmd
-        // ;; Got answer:
-        // ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 2161
-        // ;; flags: qr rd ra; QUERY: 1, ANSWER: 3, AUTHORITY: 0, ADDITIONAL: 0
-        //
-        // ;; QUESTION SECTION:
-        // ;yahoo.com.			IN	A
-        //
-        // ;; ANSWER SECTION:
-        // yahoo.com.		10	IN	A	206.190.36.45
-        // yahoo.com.		10	IN	A	98.139.183.24
-        // yahoo.com.		10	IN	A	98.138.253.109
-        //
-        // ;; Query time: 112 msec
-        // ;; SERVER: 127.0.0.1#10001(127.0.0.1)
-        // ;; WHEN: Sat Dec  5 14:49:55 2015
-        // ;; MSG SIZE  rcvd: 75
-        let q = DnsMessage::parse(&test_query_buf());
-        println!("{:?}", q);
-        assert_eq!(2161, q.header.id);
-        // todo: assert_eq!(0, OpCode::Query);
-        assert_eq!(1, q.header.qdcount);
-        //assert_eq!(1, q.questions.len());
-        assert_eq!("yahoo.com", q.question.qname);
-        // todo: more flags
-    }
-
-    // todo: test with multiple questions
-    // todo: test with part pointers. i.e, only part of the name has pointers
-    // see example page 30
-
-
-    #[bench]
-    fn parse_query_bench(b: &mut Bencher) {
-        let query = test_query_buf();
-        let buf = query.as_slice();
-        b.iter(|| DnsMessage::parse(&buf));
-    }
-
-    #[bench]
-    fn parse_reply_bench(b: &mut Bencher) {
-        let reply = test_reply_buf();
-        let buf = reply.as_slice();
-        b.iter(|| DnsMessage::parse(&buf));
-    }
 }
+
+//     fn test_reply_buf() -> Vec<u8> {
+//         return vec![8, 113, 129, 128, 0, 1, 0, 3, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99,
+//                     111, 109, 0, 0, 1, 0, 1, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 206, 190, 36,
+//                     45, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 98, 139, 183, 24, 192, 12, 0, 1,
+//                     0, 1, 0, 0, 0, 10, 0, 4, 98, 138, 253, 109];
+//     }
+
+//     #[test]
+//     fn parse_reply() {
+//         let reply = DnsMessage::parse(&test_reply_buf());
+//         println!("{:?}", reply);
+//         assert_eq!(2161, reply.header.id);
+//         // todo: more flags
+//         // todo: assert_eq!(0, OpCode::Query);
+//         assert_eq!(1, reply.header.qdcount);
+//         //assert_eq!(1, reply.questions.len());
+//         assert_eq!(3, reply.header.ancount);
+//         assert_eq!(3, reply.answers.len());
+
+//         let ref a = reply.answers[0];
+//         assert_eq!("yahoo.com", a.name);
+//         assert_eq!(10, a.ttl);
+//         assert_eq!(4, a.rdlength);
+//         assert_eq!(vec![206, 190, 36, 45], a.rdata);
+//         // todo: other answers
+
+//     }
+
+//     #[test]
+//     fn parse_query() {
+//         // query
+//         //
+//         // [8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0, 0,
+//         // 1, 0, 1]
+//         //
+//         // reply
+//         //
+//         // [8, 113, 129, 128, 0, 1, 0, 3, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0,
+//         // 0, 1, 0, 1, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 206, 190, 36, 45, 192, 12, 0, 1, 0,
+//         // 1, 0, 0, 0, 10, 0, 4, 98, 139, 183, 24, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 98, 138
+//         // , 253, 109]
+//         //
+//         // dig yahoo.com @127.0.0.1 -p 10001
+//         // ; <<>> DiG 9.8.3-P1 <<>> yahoo.com @127.0.0.1 -p 10001
+//         // ;; global options: +cmd
+//         // ;; Got answer:
+//         // ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 2161
+//         // ;; flags: qr rd ra; QUERY: 1, ANSWER: 3, AUTHORITY: 0, ADDITIONAL: 0
+//         //
+//         // ;; QUESTION SECTION:
+//         // ;yahoo.com.			IN	A
+//         //
+//         // ;; ANSWER SECTION:
+//         // yahoo.com.		10	IN	A	206.190.36.45
+//         // yahoo.com.		10	IN	A	98.139.183.24
+//         // yahoo.com.		10	IN	A	98.138.253.109
+//         //
+//         // ;; Query time: 112 msec
+//         // ;; SERVER: 127.0.0.1#10001(127.0.0.1)
+//         // ;; WHEN: Sat Dec  5 14:49:55 2015
+//         // ;; MSG SIZE  rcvd: 75
+//         let q = DnsMessage::parse(&test_query_buf());
+//         println!("{:?}", q);
+//         assert_eq!(2161, q.header.id);
+//         // todo: assert_eq!(0, OpCode::Query);
+//         assert_eq!(1, q.header.qdcount);
+//         //assert_eq!(1, q.questions.len());
+//         assert_eq!("yahoo.com", q.question.qname);
+//         // todo: more flags
+//     }
+
+//     // todo: test with multiple questions
+//     // todo: test with part pointers. i.e, only part of the name has pointers
+//     // see example page 30
+
+
+//     #[bench]
+//     fn parse_query_bench(b: &mut Bencher) {
+//         let query = test_query_buf();
+//         let buf = query.as_slice();
+//         b.iter(|| DnsMessage::parse(&buf));
+//     }
+
+//     #[bench]
+//     fn parse_reply_bench(b: &mut Bencher) {
+//         let reply = test_reply_buf();
+//         let buf = reply.as_slice();
+//         b.iter(|| DnsMessage::parse(&buf));
+//     }
+// }

@@ -53,7 +53,7 @@ impl Request<TcpRequest> for TcpRequest {
                             warn!("tcp: Only received length prefix. No content");
                             return;
                         }
-                        self.base.on_receive(ctx, count - TcpRequest::PREFIX_LEN , &buf[TcpRequest::PREFIX_LEN ..count]);
+                        self.base.on_receive(ctx, count - TcpRequest::PREFIX_LEN , &buf[TcpRequest::PREFIX_LEN..count]);
                      },
                     Err(e) => self.base.on_receive_err(ctx, e)
                 }

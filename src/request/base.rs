@@ -5,6 +5,7 @@ use server_mio::RequestCtx;
 use dns::dns_entities::*;
 use std::sync::{Arc, RwLock};
 use cache::*;
+use buf::*;
 
 pub trait Request<T> {
     fn new_with(client_addr: SocketAddr, request: RequestBase) -> T;
@@ -22,21 +23,27 @@ pub trait Request<T> {
         }
     }
 
-    fn ready_cache(&mut self, ctx: &mut RequestCtx, cache: Arc<RwLock<Cache>>) {
+    fn ready_cache(&mut self, ctx: &mut RequestCtx, cache_lock: Arc<RwLock<Cache>>) {
         //if not in cache...
-        let query = DnsMessage::parse(&self.get().query_buf);
-        let q = query.question;
-        let key = CacheKey::new(q.qname, q.qtype, q.qclass);
-        match cache.read() {
-            Ok(the_cache) => {
-                let answers = the_cache.get(&key);
-                debug!("Could answer with {:?} based on key {:?}", answers, key);
-                //self.response
+        match cache_lock.read() {
+            Ok(cache) => {
+                let query = DnsMessage::parse(&self.get().query_buf);
+                let key = CacheKey::from(&query.question);
+                if let Some(entry) = cache.get(&key) {
+                    
+                    //TODO: need to adjust the TTL down?
+                    let mut answer_header = query.header.clone();
+                    answer_header.ancount = entry.answers.len() as u16;
+                    let msg = DnsMessage::new_reply(answer_header, query.question, entry.answers.clone());
+                    debug!("Could answer with {:?} based on key {:?}", msg, entry.key);
+                    self.get_mut().response_buf = Some(msg.to_bytes());
+                    self.get_mut().response = Some(msg);                    
+                    self.get_mut().state = RequestState::ResponseFromCache;
+                } 
+                self.ready(ctx);
             }
             Err(e) => error!("Couldn't get read lock {:?}", e)
         }
-
-        self.ready(ctx);
     }
 
     fn accept(&mut self, ctx: &mut RequestCtx);
@@ -117,11 +124,10 @@ impl RequestBase {
 
     pub fn register_upstream(&mut self, ctx: &mut RequestCtx, events: EventSet, sock: &Evented) {
         let poll_opt = PollOpt::edge() | PollOpt::oneshot();
-        ctx.event_loop
-           .register(sock, ctx.token, events, poll_opt)
-           .unwrap_or_else(|e| {
-               self.error_with(format!("Failed to register upstream socket. {}", e))
-           });
+        match ctx.event_loop.register(sock, ctx.token, events, poll_opt) {
+            Ok(_) => debug!("Registered upstream {:?} {:?}", ctx.token, events),
+            Err(e) => error!("Failed to register upstream socket. {}", e)
+        }        
     }
 
     pub fn buffer_response(&mut self, buf: &[u8], count: usize) {
@@ -155,7 +161,7 @@ impl RequestBase {
 
     pub fn on_receive(&mut self, ctx: &mut RequestCtx, count: usize, buf: &[u8]) {
        if count > 0 {
-           trace!("{:#?}", DnsMessage::parse(&buf));
+           //trace!("{:#?}", DnsMessage::parse(buf));
            self.buffer_response(&buf, count);
            self.clear_timeout(ctx);
            self.set_state(RequestState::ResponseReceived);
