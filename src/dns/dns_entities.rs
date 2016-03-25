@@ -259,7 +259,7 @@ impl DnsMessage {
     }
 
     fn parse_question(packet: &mut DnsPacket, qdcount: u16) -> DnsQuestion {
-        if (0 < qdcount) || qdcount > 1 {
+        if qdcount > 1 {
             warn!("Invalid qdcount {:?} only 0 or 1 is valid. Ignoring other quesitons", qdcount);
         }
         DnsQuestion::parse(packet)
@@ -317,6 +317,7 @@ impl IntoBytes for DnsAnswer {
         self.name.write(packet);
         packet.write_u16(self.atype);
         packet.write_u16(self.aclass);
+        packet.write_u32(self.ttl);
         packet.write_u16(self.rdlength);
         packet.write_bytes(&self.rdata.clone());
         debug!("{:?} bytes in answer", packet.pos());        
@@ -443,7 +444,8 @@ impl IntoBytes for DnsName {
        
         for label in self.labels.iter() {
             packet.write_u8(label.len() as u8);
-            let label_bytes = label.clone().into_bytes();
+            //UTF8 double bytes? check encoding
+            let label_bytes = label.clone().into_bytes();            
             packet.write_bytes(&label_bytes);
         }
         //terminate
