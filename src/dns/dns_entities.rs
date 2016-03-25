@@ -2,6 +2,7 @@ use dns::bit_cursor::BitCursor;
 use dns::dns_packet::DnsPacket;
 use dns::mut_dns_packet::MutDnsPacket;
 use buf::*;
+use std::iter;
 
 //note: qdcount doesn't really make sense and most dns servers don't respect it. How do you
 //correlate the multiple answers to multiple questions? what do the flags apply to?
@@ -80,13 +81,13 @@ pub const QR_RESPONSE: bool = true;
 
 impl IntoBytes for DnsMessage {
 
-    fn write(&self, buf: &mut [u8]) -> usize {
+    fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
         let mut byte_count = 0;
-        byte_count += self.header.write(buf);
-        byte_count += self.question.write(buf);
+        byte_count += self.header.write(packet);
+        byte_count += self.question.write(packet);
         if self.msg_type == DnsMessageType::Reply {
             for answer in self.answers.iter() {
-                byte_count += answer.write(buf);
+                byte_count += answer.write(packet);
             }    
         }        
         byte_count
@@ -183,10 +184,8 @@ impl DnsHeader {
 
 impl IntoBytes for DnsHeader {
 
-    fn write(&self, mut buf: &mut [u8]) -> usize {
-        let mut packet = MutDnsPacket::new(&mut buf);
-        let res = packet.write_u16(self.id); //1st word of header
-        debug!("res: {:?}", res);        
+    fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
+        packet.write_u16(self.id); //1st word of header
         if let Some(val) = packet.next_u16() {
             let mut bit_cursor = BitCursor::new_with(val);
             bit_cursor.write_bool(self.qr); //qr
@@ -252,8 +251,8 @@ impl DnsMessage {
     }
 
     fn parse_question(packet: &mut DnsPacket, qdcount: u16) -> DnsQuestion {
-        if qdcount != 1 {
-            warn!("Invalid qdcount {:?} only 1 is valid. Ignoring other quesitons", qdcount);
+        if (0 < qdcount) || qdcount > 1 {
+            warn!("Invalid qdcount {:?} only 0 or 1 is valid. Ignoring other quesitons", qdcount);
         }
         DnsQuestion::parse(packet)
     }
@@ -305,8 +304,7 @@ impl DnsAnswer {
 
 impl IntoBytes for DnsAnswer {
 
-    fn write(&self, mut buf: &mut [u8]) -> usize {
-        let mut packet = MutDnsPacket::new(&mut buf);
+    fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
         packet.write_bytes(&DnsName::to_bytes(self.name.clone()));
         packet.write_u16(self.atype);
         packet.write_u16(self.aclass);
@@ -319,8 +317,7 @@ impl IntoBytes for DnsAnswer {
 
 impl IntoBytes for DnsQuestion {
 
-    fn write(&self, mut buf: &mut [u8]) -> usize {
-        let mut packet = MutDnsPacket::new(&mut buf);
+    fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
         packet.write_bytes(&DnsName::to_bytes(self.qname.clone()));
         packet.write_u16(self.qtype);
         packet.write_u16(self.qclass);
@@ -430,6 +427,22 @@ impl DnsName {
         warn!("Invalid offset {:?}", offset);
         return String::new();
     }
+}
+
+pub trait IntoBytes {
+    fn to_bytes(&self) -> Vec<u8> {
+        //a zero'd buffer so the len() checks see enough room
+        let mut buf = iter::repeat(0).take(4096).collect::<Vec<_>>();
+        let byte_count;
+        {
+            let mut packet = MutDnsPacket::new(&mut buf);
+            byte_count = self.write(&mut packet);
+            debug!("{:?} bytes from to_bytes()", byte_count);
+        }
+        buf.truncate(byte_count);
+        buf
+    }
+    fn write(&self, mut packet: &mut MutDnsPacket) -> usize;
 }
 
 

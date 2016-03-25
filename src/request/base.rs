@@ -32,7 +32,10 @@ pub trait Request<T> {
                 if let Some(entry) = cache.get(&key) {
                     
                     //TODO: need to adjust the TTL down?
+                    //TODO: cache the whole message?
                     let mut answer_header = query.header.clone();
+                    answer_header.id = query.header.id;
+                    answer_header.qr = true;
                     answer_header.ancount = entry.answers.len() as u16;
                     let msg = DnsMessage::new_reply(answer_header, query.question, entry.answers.clone());
                     debug!("Could answer with {:?} based on key {:?}", msg, entry.key);

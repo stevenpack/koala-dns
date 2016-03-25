@@ -1,4 +1,3 @@
-use std::iter;
 pub trait DirectAccessBuf {
     fn pos(&self) -> usize;
     fn set_pos(&mut self, pos: usize);
@@ -132,14 +131,4 @@ pub trait BufWrite : BufRead {
     }
 }
 
-pub trait IntoBytes {
-    fn to_bytes(&self) -> Vec<u8> {
-        //a zero'd buffer so the len() checks see enough room
-        let mut buf = iter::repeat(0).take(4096).collect::<Vec<_>>();
-        let byte_count = self.write(&mut buf);
-        debug!("{:?} bytes from to_bytes()", byte_count);
-        buf.truncate(byte_count);
-        buf
-    }
-    fn write(&self, mut buf: &mut [u8]) -> usize;
-}
+

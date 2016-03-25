@@ -7,7 +7,7 @@ pub struct MutDnsPacket<'a> {
 }
 
 impl<'a> MutDnsPacket<'a> {
-    pub fn new(buf: &mut [u8]) -> MutDnsPacket {        
+    pub fn new(buf: &mut Vec<u8>) -> MutDnsPacket {        
         return MutDnsPacket::new_at(buf, 0);
     }
 
