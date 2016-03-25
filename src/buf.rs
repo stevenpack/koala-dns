@@ -1,3 +1,4 @@
+use std::iter;
 pub trait DirectAccessBuf {
     fn pos(&self) -> usize;
     fn set_pos(&mut self, pos: usize);
@@ -19,10 +20,7 @@ pub trait DirectAccessBuf {
 }
 
 pub trait BufRead : DirectAccessBuf {
-    fn buf(&self) -> &Vec<u8>;
-    fn capacity(&self) -> usize {
-        self.buf().capacity()
-    }
+    fn buf(&self) -> &[u8];
 
     fn peek_u8(&self) -> Option<u8> {
         if self.pos() >= self.len() {
@@ -85,55 +83,51 @@ pub trait BufRead : DirectAccessBuf {
 
 
 pub trait BufWrite : BufRead {
-    fn buf(&mut self) -> &mut Vec<u8>;
+    fn buf(&mut self) -> &mut [u8];
 
     fn write_u8(&mut self, byte: u8) -> bool {
-        println!("u8 self.pos() {:?} >= {:?} self.len()", self.pos(), self.capacity());
-        if self.pos() >= self.capacity() {            
+        if self.pos() >= self.len() {
+            println!("WRITE FAILED self.len()={:?}", self.len());
             return false;
         }
-        let pos = self.pos();
-        self.buf().insert(pos, byte);
+        self.buf()[self.pos()] = byte;
         self.advance(1);
         return true;
     }
 
     fn write_u16(&mut self, bytes: u16) -> bool {
-        println!("u16 self.pos() {:?} >= {:?} self.len()", self.pos(), self.capacity());
-        if self.pos() + 1 >= self.capacity() {
-            return false;
-        }
+        // if self.pos() + 1 >= self.len() {            
+        //     return false;
+        // }
 
         let pos = self.pos();
         // as takes last (rightmost) bits
-        //TODO: perf: do this in reverse would prevent shifting
-        self.buf().insert(pos, (bytes >> 8) as u8);
-        self.buf().insert(pos + 1, bytes as u8);
+        self.buf()[pos] = (bytes >> 8) as u8;
+        self.buf()[pos + 1] = bytes as u8;
         self.advance(2);
         return true;
     }
 
     fn write_u32(&mut self, bytes: u32) -> bool {
-        println!("u32 self.pos() {:?} >= {:?} self.len()", self.pos(), self.capacity());
-        if self.pos() + 3 >= self.capacity() {
+        if self.pos() + 3 >= self.len() {
             return false;
         }
         let pos = self.pos();
-        self.buf().insert(pos, (bytes >> 24) as u8);
-        self.buf().insert(pos + 1, (bytes >> 16) as u8);
-        self.buf().insert(pos + 2, (bytes >> 8) as u8);
-        self.buf().insert(pos + 3, bytes as u8);
+        self.buf()[pos] = (bytes >> 24) as u8;
+        self.buf()[pos + 1] = (bytes >> 16) as u8;
+        self.buf()[pos + 2] = (bytes >> 8) as u8;
+        self.buf()[pos + 3] = bytes as u8;
         self.advance(4);
         return true;
     }
 
-    fn write_bytes(&mut self, bytes: Vec<u8>) -> bool {
-        println!("u8 self.pos() {:?} >= {:?} self.len()", self.pos(), self.len());
-        if self.pos() + bytes.len() > self.capacity() {
+
+    fn write_bytes(&mut self, bytes: &[u8]) -> bool {
+        if self.pos() + bytes.len() > self.len() {
             return false;
         }
         for byte in bytes {
-            self.write_u8(byte);
+            self.write_u8(byte.clone());
         }
         true
     }
@@ -142,10 +136,12 @@ pub trait BufWrite : BufRead {
 pub trait IntoBytes {
     fn to_bytes(&self) -> Vec<u8> {
         //TODO: capacity...
-        let mut buf = Vec::<u8>::with_capacity(4096);
-        self.write(&mut buf);
-        debug!("{:?} bytes from to_bytes()", buf.len());
+        //let mut buf = Vec::<u8>::with_capacity(4096);
+        let mut buf = iter::repeat(0).take(4096).collect::<Vec<_>>();
+        let byte_count = self.write(&mut buf);
+        debug!("{:?} bytes from to_bytes()", byte_count);
+        buf.truncate(byte_count);
         buf
     }
-    fn write(&self, mut buf: &mut Vec<u8>);
+    fn write(&self, mut buf: &mut [u8]) -> usize;
 }

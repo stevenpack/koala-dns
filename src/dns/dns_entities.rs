@@ -80,14 +80,16 @@ pub const QR_RESPONSE: bool = true;
 
 impl IntoBytes for DnsMessage {
 
-    fn write(&self, mut buf: &mut Vec<u8>) {
-        self.header.write(buf);
-        self.question.write(buf);
+    fn write(&self, buf: &mut [u8]) -> usize {
+        let mut byte_count = 0;
+        byte_count += self.header.write(buf);
+        byte_count += self.question.write(buf);
         if self.msg_type == DnsMessageType::Reply {
             for answer in self.answers.iter() {
-                answer.write(buf);
+                byte_count += answer.write(buf);
             }    
         }        
+        byte_count
     }
 }
 
@@ -181,10 +183,10 @@ impl DnsHeader {
 
 impl IntoBytes for DnsHeader {
 
-    fn write(&self, mut buf: &mut Vec<u8>) {
+    fn write(&self, mut buf: &mut [u8]) -> usize {
         let mut packet = MutDnsPacket::new(&mut buf);
         let res = packet.write_u16(self.id);
-        println!("res: {:?}", res);
+        debug!("res: {:?}", res);        
         if let Some(val) = packet.next_u16() {
             let mut bit_cursor = BitCursor::new_with(val);
             bit_cursor.write_bool(true); //qr
@@ -199,6 +201,7 @@ impl IntoBytes for DnsHeader {
             packet.seek(2);
             packet.write_u16(bit_cursor.next_u16());
         }
+        packet.pos()
     }
 }
 
@@ -297,23 +300,25 @@ impl DnsAnswer {
 
 impl IntoBytes for DnsAnswer {
 
-    fn write(&self, mut buf: &mut Vec<u8>) {
+    fn write(&self, mut buf: &mut [u8]) -> usize {
         let mut packet = MutDnsPacket::new(&mut buf);
-        packet.write_bytes(DnsName::to_bytes(self.name.clone()));
+        packet.write_bytes(&DnsName::to_bytes(self.name.clone()));
         packet.write_u16(self.atype);
         packet.write_u16(self.aclass);
         packet.write_u16(self.rdlength);
-        packet.write_bytes(self.rdata.clone());
+        packet.write_bytes(&self.rdata.clone());
+        packet.pos()
     }
 }
 
 impl IntoBytes for DnsQuestion {
 
-    fn write(&self, mut buf: &mut Vec<u8>) {
+    fn write(&self, mut buf: &mut [u8]) -> usize {
         let mut packet = MutDnsPacket::new(&mut buf);
-        packet.write_bytes(DnsName::to_bytes(self.qname.clone()));
+        packet.write_bytes(&DnsName::to_bytes(self.qname.clone()));
         packet.write_u16(self.qtype);
         packet.write_u16(self.qclass);
+        packet.pos()
     }
 }
 

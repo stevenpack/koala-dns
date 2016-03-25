@@ -2,16 +2,17 @@ use buf::*;
 
 #[derive(Debug)]
 pub struct MutDnsPacket<'a> {
-    buf: &'a mut Vec<u8>,
+    buf: &'a mut [u8],
     pos: usize,
 }
 
 impl<'a> MutDnsPacket<'a> {
-    pub fn new(buf: &mut Vec<u8>) -> MutDnsPacket {
+    pub fn new(buf: &mut [u8]) -> MutDnsPacket {        
         return MutDnsPacket::new_at(buf, 0);
     }
 
-    pub fn new_at(buf: &mut Vec<u8>, pos: usize) -> MutDnsPacket {
+    pub fn new_at(buf: &mut [u8], pos: usize) -> MutDnsPacket {
+        debug!("New MutDnsPacket. buf.len()= {:?}", buf.len());
         return MutDnsPacket {
             buf: buf,
             pos: pos,
@@ -20,13 +21,13 @@ impl<'a> MutDnsPacket<'a> {
 }
 
 impl<'a> BufWrite for MutDnsPacket<'a> {
-    fn buf(&mut self) -> &mut Vec<u8> {
+    fn buf(&mut self) -> &mut [u8] {
         return self.buf;
     }
 }
 
 impl<'a> BufRead for MutDnsPacket<'a> {
-    fn buf(&self) -> &Vec<u8> {
+    fn buf(&self) -> &[u8] {
         return self.buf;
     }
 }
@@ -57,35 +58,35 @@ impl<'a> Iterator for MutDnsPacket<'a> {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
+#[cfg(test)]
+mod tests {
 
-//     use super::MutDnsPacket;    
-//     use buf::*;
+    use super::MutDnsPacket;    
+    use buf::*;
 
-//     fn test_buf() -> Vec<u8> {
-//         //
-//         // 00001000 01110001 00000001 00000000 00000000 00000001 00000000 00000000 00000000
-//         // 00000000 00000000 00000000 00000101 01111001 01100001 01101000 01101111 01101111
-//         // 00000011 01100011 01101111 01101101 00000000 00000000 00000001 00000000 00000001
-//         //
-//         return vec![8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111,
-//                     109, 0, 0, 1, 0, 1];
-//     }
+    fn test_buf() -> Vec<u8> {
+        //
+        // 00001000 01110001 00000001 00000000 00000000 00000001 00000000 00000000 00000000
+        // 00000000 00000000 00000000 00000101 01111001 01100001 01101000 01101111 01101111
+        // 00000011 01100011 01101111 01101101 00000000 00000000 00000001 00000000 00000001
+        //
+        return vec![8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111,
+                    109, 0, 0, 1, 0, 1];
+    }
 
-//     #[test]
-//     fn write_u8() {
-//         let mut buf = test_buf();
-//         //let mut buf = vec.as_mut_slice();
-//         let mut packet = MutDnsPacket::new(&mut buf);
-//         packet.write_u8(7);
-//         packet.write_u8(8);
-//         packet.write_u8(9);
-//         packet.seek(0);
-//         assert_eq!(7, packet.next_u8().unwrap());
-//         assert_eq!(8, packet.next_u8().unwrap());
-//         assert_eq!(9, packet.next_u8().unwrap());
-//     }
+    #[test]
+    fn write_u8() {
+        let mut buf = test_buf();
+        let mut slice = buf.as_mut_slice();
+        let mut packet = MutDnsPacket::new(&mut slice);
+        packet.write_u8(7);
+        packet.write_u8(8);
+        packet.write_u8(9);
+        packet.seek(0);
+        assert_eq!(7, packet.next_u8().unwrap());
+        assert_eq!(8, packet.next_u8().unwrap());
+        assert_eq!(9, packet.next_u8().unwrap());
+    }
 
     // #[test]
     // fn write_u16() {
@@ -121,4 +122,4 @@ impl<'a> Iterator for MutDnsPacket<'a> {
     //     packet.seek(0);
     //     assert_eq!(123456789, packet.next_u32().unwrap());
     // }
-//}
+}

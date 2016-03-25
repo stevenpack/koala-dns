@@ -3,7 +3,7 @@ use buf::*;
 ///Wrapper over a buffer providing seek, next, seek etc.
 #[derive(Debug)]
 pub struct DnsPacket<'a> {
-    buf: &'a Vec<u8>,
+    buf: &'a [u8],
     pos: usize,
 }
 
@@ -21,7 +21,7 @@ impl<'a> DirectAccessBuf for DnsPacket<'a> {
     }
 }
 impl<'a> BufRead for DnsPacket<'a> {
-    fn buf(&self) -> &Vec<u8> {
+    fn buf(&self) -> &[u8] {
         return self.buf;
     }
 }
