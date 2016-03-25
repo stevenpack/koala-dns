@@ -91,7 +91,7 @@ impl CacheKey {
     }
 
     pub fn from(query: &DnsQuestion) -> CacheKey {
-        CacheKey::new(query.qname.clone(), query.qtype, query.qclass)        
+        CacheKey::new(query.qname.to_string(), query.qtype, query.qclass)        
     }
 }
 
@@ -126,7 +126,7 @@ impl CacheEntry {
     pub fn from(msg: &DnsMessage) -> Option<CacheEntry> {        
         if let Some(answer) = msg.first_answer() {
             let a = answer.clone();
-            let key = CacheKey::new(a.name, a.atype, a.aclass);
+            let key = CacheKey::new(a.name.to_string(), a.atype, a.aclass);
             return Some(CacheEntry::new(key, msg.clone().answers, answer.ttl))
         }
         None
