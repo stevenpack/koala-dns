@@ -74,6 +74,8 @@ mod tests {
                     109, 0, 0, 1, 0, 1];
     }
 
+
+
     #[test]
     fn write_u8() {
         let mut buf = test_buf();
@@ -108,7 +110,7 @@ mod tests {
         let mut packet = MutDnsPacket::new(buf);
         assert_eq!(true, packet.write_u16(1));
         assert_eq!(true, packet.write_u16(1));
-        assert_eq!(false, packet.write_u16(1));
+        assert_eq!(false, packet.write_u16(1)); //no room
         println!("{:?}", packet);
     }
 

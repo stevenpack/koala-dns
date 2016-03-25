@@ -134,8 +134,7 @@ pub trait BufWrite : BufRead {
 
 pub trait IntoBytes {
     fn to_bytes(&self) -> Vec<u8> {
-        //TODO: capacity...
-        //let mut buf = Vec::<u8>::with_capacity(4096);
+        //a zero'd buffer so the len() checks see enough room
         let mut buf = iter::repeat(0).take(4096).collect::<Vec<_>>();
         let byte_count = self.write(&mut buf);
         debug!("{:?} bytes from to_bytes()", byte_count);

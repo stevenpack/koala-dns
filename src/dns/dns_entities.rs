@@ -176,7 +176,7 @@ impl DnsHeader {
             ancount: ancount,
             nscount: nscount,
             arcount: arcount,
-        };
+        };        
         return header;
     }
 }
@@ -189,13 +189,13 @@ impl IntoBytes for DnsHeader {
         debug!("res: {:?}", res);        
         if let Some(val) = packet.next_u16() {
             let mut bit_cursor = BitCursor::new_with(val);
-            bit_cursor.write_bool(true); //qr
-            bit_cursor.write_u4(0); //opcode
-            bit_cursor.write_bool(false); //aa
-            bit_cursor.write_bool(false); //tc
-            bit_cursor.write_bool(true); //rd
-            bit_cursor.write_bool(true); //ra
-            bit_cursor.write_u4(0); //z
+            bit_cursor.write_bool(self.qr); //qr
+            bit_cursor.write_u4(self.opcode); //opcode
+            bit_cursor.write_bool(self.aa); //aa
+            bit_cursor.write_bool(self.tc); //tc
+            bit_cursor.write_bool(self.rd); //rd
+            bit_cursor.write_bool(self.ra); //ra
+            bit_cursor.write_u4(self.z); //z
             bit_cursor.write_u4(self.rcode); //rcode
             bit_cursor.seek(0);
             packet.seek(2);
@@ -443,6 +443,18 @@ mod tests {
     fn to_bytes() {
        let msg = DnsMessage::parse(&test_query_buf());
        println!("bytes: {:?}", msg.to_bytes());
+    }
+
+    #[test]
+    fn round_trip() {
+        let mut query = test_query_buf();
+        let msg = DnsMessage::parse(&query);
+        let mut query_out = msg.header.to_bytes();
+        query.split_off(12);
+        query_out.split_off(12);
+        //compare the headers
+        assert_eq!(query, query_out);
+        
     }
 
     fn test_query_buf() -> Vec<u8> {
