@@ -36,13 +36,15 @@ impl Cache  {
         self.map.get(key)
     }
 
-    // pub fn contains(&self, key: &CacheKey) -> bool {
-    //     self.map.contains_key(&key)
-    // }
+    #[allow(dead_code)]
+    pub fn contains(&self, key: &CacheKey) -> bool {
+        self.map.contains_key(&key)
+    }
 
-    // pub fn len(&self) -> usize {
-    //     self.map.len()
-    // }
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
 
     pub fn remove_expired(&mut self) -> usize {
         let now = SteadyTime::now();        
@@ -167,75 +169,75 @@ impl Ord for CacheExpiry {
     }
 }
 
-// #[cfg(test)]
-// mod test {
-//     use super::{Cache, CacheEntry, CacheKey};
-//     use std::thread;
-//     use std::time::Duration;
-//     use dns::dns_entities::{DnsAnswer};
+#[cfg(test)]
+mod test {
+    use super::{Cache, CacheEntry, CacheKey};
+    use std::thread;
+    use std::time::Duration;
+    use dns::dns_entities::{DnsAnswer};
 
-//     fn test_cache() -> Cache {
-//         let mut cache = Cache::new();
-//         let key = CacheKey::new(String::from("yahoo.com"), 1, 1);
-//         let val = CacheEntry::new(key.clone(), test_answers(), 5);
-//         cache.upsert(key.clone(), val);
-//         cache
-//     }
+    fn test_cache() -> Cache {
+        let mut cache = Cache::new();
+        let key = CacheKey::new(String::from("yahoo.com"), 1, 1);
+        let val = CacheEntry::new(key.clone(), test_answers(), 5);
+        cache.upsert(key.clone(), val);
+        cache
+    }
 
-//     fn test_key_with(name: String) -> CacheKey {
-//         CacheKey::new(name, 1, 1)
-//     }
+    fn test_key_with(name: String) -> CacheKey {
+        CacheKey::new(name, 1, 1)
+    }
 
-//     fn test_key() -> CacheKey {
-//         test_key_with(String::from("yahoo.com"))
-//     }
+    fn test_key() -> CacheKey {
+        test_key_with(String::from("yahoo.com"))
+    }
 
-//     fn test_answers() -> Vec<DnsAnswer> {
-//         vec![test_answer()]
-//     }
+    fn test_answers() -> Vec<DnsAnswer> {
+        vec![test_answer()]
+    }
 
-//     fn test_answers_with(domain: String) -> Vec<DnsAnswer> {
-//         vec![test_answer_with(domain)]
-//     }
+    fn test_answers_with(domain: String) -> Vec<DnsAnswer> {
+        vec![test_answer_with(domain)]
+    }
 
-//     fn test_answer() -> DnsAnswer {
-//         test_answer_with(String::from("yahoo.com"))
-//     }
+    fn test_answer() -> DnsAnswer {
+        test_answer_with(String::from("yahoo.com"))
+    }
 
-//     fn test_answer_with(domain: String) -> DnsAnswer {
-//         DnsAnswer::new(domain, 1, 1, 10, 4, vec![200, 200, 200, 200])
-//     }
+    fn test_answer_with(domain: String) -> DnsAnswer {
+        DnsAnswer::new(domain, 1, 1, 10, 4, vec![200, 200, 200, 200])
+    }
 
-//     #[test]
-//     fn upsert() {
-//         let cache = test_cache();
-//         let key = test_key();
-//         assert_eq!(cache.get(&key).unwrap().answers[0].name, String::from("yahoo.com"));
-//     }
+    #[test]
+    fn upsert() {
+        let cache = test_cache();
+        let key = test_key();
+        assert_eq!(cache.get(&key).unwrap().answers[0].name, String::from("yahoo.com"));
+    }
 
-//     #[test]
-//     fn expiry() {
-//         let mut cache = test_cache();
-//         let key2 = CacheKey::new(String::from("lycos.com"), 1, 1);
-//         let val2 = CacheEntry::new(key2.clone(), test_answers_with(String::from("lycos.com")), 100);
-//         cache.upsert(key2, val2);
+    #[test]
+    fn expiry() {
+        let mut cache = test_cache();
+        let key2 = CacheKey::new(String::from("lycos.com"), 1, 1);
+        let val2 = CacheEntry::new(key2.clone(), test_answers_with(String::from("lycos.com")), 100);
+        cache.upsert(key2, val2);
 
-//         assert_eq!(2, cache.len());
-//         thread::sleep(Duration::from_millis(10));
-//         assert_eq!(1, cache.remove_expired());
-//         assert_eq!(1, cache.len());
-//     }
+        assert_eq!(2, cache.len());
+        thread::sleep(Duration::from_millis(10));
+        assert_eq!(1, cache.remove_expired());
+        assert_eq!(1, cache.len());
+    }
 
-//      #[test]
-//     fn len() {
-//         let cache = test_cache();
-//         assert_eq!(cache.len(), 1);
-//     }
+     #[test]
+    fn len() {
+        let cache = test_cache();
+        assert_eq!(cache.len(), 1);
+    }
 
-//     #[test]
-//     fn contains() {
-//         let cache = test_cache();
-//         let key = CacheKey::new(String::from("yahoo.com"), 1, 1);
-//         assert!(cache.contains(&key));
-//     }
-// }
+    #[test]
+    fn contains() {
+        let cache = test_cache();
+        let key = CacheKey::new(String::from("yahoo.com"), 1, 1);
+        assert!(cache.contains(&key));
+    }
+}

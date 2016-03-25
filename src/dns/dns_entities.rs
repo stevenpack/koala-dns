@@ -437,7 +437,7 @@ impl DnsName {
 mod tests {
     use super::*;
     use buf::*;
-    //use test::Bencher;
+    use test::Bencher;
 
     #[test]
     fn to_bytes() {
@@ -454,95 +454,93 @@ mod tests {
         return vec![8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111,
                     109, 0, 0, 1, 0, 1];
     }
+
+
+    fn test_reply_buf() -> Vec<u8> {
+        return vec![8, 113, 129, 128, 0, 1, 0, 3, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99,
+                    111, 109, 0, 0, 1, 0, 1, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 206, 190, 36,
+                    45, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 98, 139, 183, 24, 192, 12, 0, 1,
+                    0, 1, 0, 0, 0, 10, 0, 4, 98, 138, 253, 109];
+    }
+
+    #[test]
+    fn parse_reply() {
+        let reply = DnsMessage::parse(&test_reply_buf());
+        println!("{:?}", reply);
+        assert_eq!(2161, reply.header.id);
+        // todo: more flags
+        // todo: assert_eq!(0, OpCode::Query);
+        assert_eq!(1, reply.header.qdcount);
+        //assert_eq!(1, reply.questions.len());
+        assert_eq!(3, reply.header.ancount);
+        assert_eq!(3, reply.answers.len());
+
+        let ref a = reply.answers[0];
+        assert_eq!("yahoo.com", a.name);
+        assert_eq!(10, a.ttl);
+        assert_eq!(4, a.rdlength);
+        assert_eq!(vec![206, 190, 36, 45], a.rdata);
+        // todo: other answers
+
+    }
+
+    #[test]
+    fn parse_query() {
+        // query
+        //
+        // [8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0, 0,
+        // 1, 0, 1]
+        //
+        // reply
+        //
+        // [8, 113, 129, 128, 0, 1, 0, 3, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0,
+        // 0, 1, 0, 1, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 206, 190, 36, 45, 192, 12, 0, 1, 0,
+        // 1, 0, 0, 0, 10, 0, 4, 98, 139, 183, 24, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 98, 138
+        // , 253, 109]
+        //
+        // dig yahoo.com @127.0.0.1 -p 10001
+        // ; <<>> DiG 9.8.3-P1 <<>> yahoo.com @127.0.0.1 -p 10001
+        // ;; global options: +cmd
+        // ;; Got answer:
+        // ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 2161
+        // ;; flags: qr rd ra; QUERY: 1, ANSWER: 3, AUTHORITY: 0, ADDITIONAL: 0
+        //
+        // ;; QUESTION SECTION:
+        // ;yahoo.com.			IN	A
+        //
+        // ;; ANSWER SECTION:
+        // yahoo.com.		10	IN	A	206.190.36.45
+        // yahoo.com.		10	IN	A	98.139.183.24
+        // yahoo.com.		10	IN	A	98.138.253.109
+        //
+        // ;; Query time: 112 msec
+        // ;; SERVER: 127.0.0.1#10001(127.0.0.1)
+        // ;; WHEN: Sat Dec  5 14:49:55 2015
+        // ;; MSG SIZE  rcvd: 75
+        let q = DnsMessage::parse(&test_query_buf());
+        println!("{:?}", q);
+        assert_eq!(2161, q.header.id);
+        // todo: assert_eq!(0, OpCode::Query);
+        assert_eq!(1, q.header.qdcount);
+        //assert_eq!(1, q.questions.len());
+        assert_eq!("yahoo.com", q.question.qname);
+        // todo: more flags
+    }
+
+    // todo: test with multiple questions
+    // todo: test with part pointers. i.e, only part of the name has pointers
+    // see example page 30
+
+
+    #[bench]
+    fn parse_query_bench(b: &mut Bencher) {
+        let query = test_query_buf();
+        b.iter(|| DnsMessage::parse(&query));
+    }
+
+    #[bench]
+    fn parse_reply_bench(b: &mut Bencher) {
+        let reply = test_reply_buf();
+        b.iter(|| DnsMessage::parse(&reply));
+    }
 }
-
-//     fn test_reply_buf() -> Vec<u8> {
-//         return vec![8, 113, 129, 128, 0, 1, 0, 3, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99,
-//                     111, 109, 0, 0, 1, 0, 1, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 206, 190, 36,
-//                     45, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 98, 139, 183, 24, 192, 12, 0, 1,
-//                     0, 1, 0, 0, 0, 10, 0, 4, 98, 138, 253, 109];
-//     }
-
-//     #[test]
-//     fn parse_reply() {
-//         let reply = DnsMessage::parse(&test_reply_buf());
-//         println!("{:?}", reply);
-//         assert_eq!(2161, reply.header.id);
-//         // todo: more flags
-//         // todo: assert_eq!(0, OpCode::Query);
-//         assert_eq!(1, reply.header.qdcount);
-//         //assert_eq!(1, reply.questions.len());
-//         assert_eq!(3, reply.header.ancount);
-//         assert_eq!(3, reply.answers.len());
-
-//         let ref a = reply.answers[0];
-//         assert_eq!("yahoo.com", a.name);
-//         assert_eq!(10, a.ttl);
-//         assert_eq!(4, a.rdlength);
-//         assert_eq!(vec![206, 190, 36, 45], a.rdata);
-//         // todo: other answers
-
-//     }
-
-//     #[test]
-//     fn parse_query() {
-//         // query
-//         //
-//         // [8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0, 0,
-//         // 1, 0, 1]
-//         //
-//         // reply
-//         //
-//         // [8, 113, 129, 128, 0, 1, 0, 3, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111, 109, 0,
-//         // 0, 1, 0, 1, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 206, 190, 36, 45, 192, 12, 0, 1, 0,
-//         // 1, 0, 0, 0, 10, 0, 4, 98, 139, 183, 24, 192, 12, 0, 1, 0, 1, 0, 0, 0, 10, 0, 4, 98, 138
-//         // , 253, 109]
-//         //
-//         // dig yahoo.com @127.0.0.1 -p 10001
-//         // ; <<>> DiG 9.8.3-P1 <<>> yahoo.com @127.0.0.1 -p 10001
-//         // ;; global options: +cmd
-//         // ;; Got answer:
-//         // ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 2161
-//         // ;; flags: qr rd ra; QUERY: 1, ANSWER: 3, AUTHORITY: 0, ADDITIONAL: 0
-//         //
-//         // ;; QUESTION SECTION:
-//         // ;yahoo.com.			IN	A
-//         //
-//         // ;; ANSWER SECTION:
-//         // yahoo.com.		10	IN	A	206.190.36.45
-//         // yahoo.com.		10	IN	A	98.139.183.24
-//         // yahoo.com.		10	IN	A	98.138.253.109
-//         //
-//         // ;; Query time: 112 msec
-//         // ;; SERVER: 127.0.0.1#10001(127.0.0.1)
-//         // ;; WHEN: Sat Dec  5 14:49:55 2015
-//         // ;; MSG SIZE  rcvd: 75
-//         let q = DnsMessage::parse(&test_query_buf());
-//         println!("{:?}", q);
-//         assert_eq!(2161, q.header.id);
-//         // todo: assert_eq!(0, OpCode::Query);
-//         assert_eq!(1, q.header.qdcount);
-//         //assert_eq!(1, q.questions.len());
-//         assert_eq!("yahoo.com", q.question.qname);
-//         // todo: more flags
-//     }
-
-//     // todo: test with multiple questions
-//     // todo: test with part pointers. i.e, only part of the name has pointers
-//     // see example page 30
-
-
-//     #[bench]
-//     fn parse_query_bench(b: &mut Bencher) {
-//         let query = test_query_buf();
-//         let buf = query.as_slice();
-//         b.iter(|| DnsMessage::parse(&buf));
-//     }
-
-//     #[bench]
-//     fn parse_reply_bench(b: &mut Bencher) {
-//         let reply = test_reply_buf();
-//         let buf = reply.as_slice();
-//         b.iter(|| DnsMessage::parse(&buf));
-//     }
-// }

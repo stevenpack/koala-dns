@@ -88,38 +88,38 @@ mod tests {
         assert_eq!(9, packet.next_u8().unwrap());
     }
 
-    // #[test]
-    // fn write_u16() {
-    //     let mut vec = test_buf();
-    //     let mut buf = vec.as_mut_slice();
-    //     let mut packet = MutDnsPacket::new(buf);
-    //     packet.write_u16(2161);
-    //     packet.write_u16(1);
-    //     packet.seek(0);
-    //     println!("{:?}", packet);
-    //     assert_eq!(2161, packet.next_u16().unwrap());
-    //     assert_eq!(1, packet.next_u16().unwrap());
-    // }
+    #[test]
+    fn write_u16() {
+        let mut vec = test_buf();
+        let mut buf = vec.as_mut_slice();
+        let mut packet = MutDnsPacket::new(buf);
+        packet.write_u16(2161);
+        packet.write_u16(1);
+        packet.seek(0);
+        println!("{:?}", packet);
+        assert_eq!(2161, packet.next_u16().unwrap());
+        assert_eq!(1, packet.next_u16().unwrap());
+    }
 
-    // #[test]
-    // fn write_u16_bounds() {
-    //     let mut vec = vec![0, 0, 0, 0];
-    //     let mut buf = vec.as_mut_slice();
-    //     let mut packet = MutDnsPacket::new(buf);
-    //     assert_eq!(true, packet.write_u16(1));
-    //     assert_eq!(true, packet.write_u16(1));
-    //     assert_eq!(false, packet.write_u16(1));
-    //     println!("{:?}", packet);
-    // }
+    #[test]
+    fn write_u16_bounds() {
+        let mut vec = vec![0, 0, 0, 0];
+        let mut buf = vec.as_mut_slice();
+        let mut packet = MutDnsPacket::new(buf);
+        assert_eq!(true, packet.write_u16(1));
+        assert_eq!(true, packet.write_u16(1));
+        assert_eq!(false, packet.write_u16(1));
+        println!("{:?}", packet);
+    }
 
-    // #[test]
-    // fn write_u32() {
-    //     let mut vec = vec![0, 0, 0, 0];
-    //     let mut buf = vec.as_mut_slice();
-    //     let mut packet = MutDnsPacket::new(buf);
-    //     assert_eq!(true, packet.write_u32(123456789));
-    //     println!("{:?}", packet);
-    //     packet.seek(0);
-    //     assert_eq!(123456789, packet.next_u32().unwrap());
-    // }
+    #[test]
+    fn write_u32() {
+        let mut vec = vec![0, 0, 0, 0];
+        let mut buf = vec.as_mut_slice();
+        let mut packet = MutDnsPacket::new(buf);
+        assert_eq!(true, packet.write_u32(123456789));
+        println!("{:?}", packet);
+        packet.seek(0);
+        assert_eq!(123456789, packet.next_u32().unwrap());
+    }
 }
