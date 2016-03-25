@@ -185,22 +185,27 @@ impl IntoBytes for DnsHeader {
 
     fn write(&self, mut buf: &mut [u8]) -> usize {
         let mut packet = MutDnsPacket::new(&mut buf);
-        let res = packet.write_u16(self.id);
+        let res = packet.write_u16(self.id); //1st word of header
         debug!("res: {:?}", res);        
         if let Some(val) = packet.next_u16() {
             let mut bit_cursor = BitCursor::new_with(val);
             bit_cursor.write_bool(true); //qr
             bit_cursor.write_u4(0); //opcode
-            bit_cursor.write_bool(false);
-            bit_cursor.write_bool(false);
-            bit_cursor.write_bool(true);
-            bit_cursor.write_bool(true);
-            bit_cursor.write(3, 0); //z
+            bit_cursor.write_bool(false); //aa
+            bit_cursor.write_bool(false); //tc
+            bit_cursor.write_bool(true); //rd
+            bit_cursor.write_bool(true); //ra
+            bit_cursor.write_u4(0); //z
             bit_cursor.write_u4(self.rcode); //rcode
             bit_cursor.seek(0);
             packet.seek(2);
-            packet.write_u16(bit_cursor.next_u16());
+            packet.write_u16(bit_cursor.next_u16()); //2nd word of header
+            packet.write_u16(self.qdcount); //qdcount
+            packet.write_u16(self.ancount); //ancount
+            packet.write_u16(self.nscount); //nscount
+            packet.write_u16(self.arcount); //arcount
         }
+        debug!("{:?} bytes in header", packet.pos());        
         packet.pos()
     }
 }
@@ -307,6 +312,7 @@ impl IntoBytes for DnsAnswer {
         packet.write_u16(self.aclass);
         packet.write_u16(self.rdlength);
         packet.write_bytes(&self.rdata.clone());
+        debug!("{:?} bytes in answer", packet.pos());        
         packet.pos()
     }
 }
@@ -318,6 +324,7 @@ impl IntoBytes for DnsQuestion {
         packet.write_bytes(&DnsName::to_bytes(self.qname.clone()));
         packet.write_u16(self.qtype);
         packet.write_u16(self.qclass);
+        debug!("{:?} bytes in question", packet.pos());        
         packet.pos()
     }
 }

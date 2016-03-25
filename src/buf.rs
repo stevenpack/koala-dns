@@ -87,7 +87,6 @@ pub trait BufWrite : BufRead {
 
     fn write_u8(&mut self, byte: u8) -> bool {
         if self.pos() >= self.len() {
-            println!("WRITE FAILED self.len()={:?}", self.len());
             return false;
         }
         self.buf()[self.pos()] = byte;
@@ -96,9 +95,9 @@ pub trait BufWrite : BufRead {
     }
 
     fn write_u16(&mut self, bytes: u16) -> bool {
-        // if self.pos() + 1 >= self.len() {            
-        //     return false;
-        // }
+        if self.pos() + 1 >= self.len() {            
+            return false;
+        }
 
         let pos = self.pos();
         // as takes last (rightmost) bits
