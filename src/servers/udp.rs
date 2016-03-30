@@ -16,13 +16,13 @@ pub struct UdpServer {
 
 impl UdpServer{
     pub const UDP_SERVER_TOKEN: Token = Token(1);
-    pub fn new(addr: SocketAddr, start_token: usize, max_connections: usize, params: RequestParams, cache: Arc<RwLock<Cache>>) -> UdpServer {
+    pub fn new(addr: SocketAddr, start_token: usize, max_connections: usize, params: RequestParams) -> UdpServer {
         let server_socket = Self::bind_udp(addr);
         let requests = Slab::new_starting_at(Token(start_token), max_connections);
         let responses = Vec::<UdpRequest>::new();
         UdpServer {
             server_socket: server_socket,
-            base: ServerBase::<UdpRequest>::new(requests, responses, params, Self::UDP_SERVER_TOKEN, cache)
+            base: ServerBase::<UdpRequest>::new(requests, responses, params, Self::UDP_SERVER_TOKEN)
         }
     }
 
@@ -63,7 +63,7 @@ impl UdpServer{
         if ctx.events.is_readable() {
             self.accept(ctx.token)
                 .and_then( |req| self.base.requests.insert(req).ok())
-                .and_then( |tok| Some(RequestCtx::new(ctx.event_loop, EventSet::readable(), tok)))
+                .and_then( |tok| Some(RequestCtx::new(ctx.event_loop, EventSet::readable(), tok, ctx.cache.clone())))
                 .and_then( |req_ctx| Some((self.base.requests.get_mut(req_ctx.token), req_ctx)))
                 .and_then( |(req, mut req_ctx)| Some(req.unwrap().ready(&mut req_ctx)));
         }

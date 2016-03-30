@@ -15,7 +15,7 @@ use servers::tcp::TcpServer;
 pub struct MioServer {
     udp_server: UdpServer,
     tcp_server: TcpServer,
-    //cache: Arc<RwLock<Cache>>
+    cache: Arc<RwLock<Cache>>
 }
 
 impl Handler for MioServer {
@@ -23,7 +23,7 @@ impl Handler for MioServer {
     type Message = String; //todo: make enum
 
     fn ready(&mut self, event_loop: &mut EventLoop<Self>, token: Token, events: EventSet) {
-        let mut ctx = RequestCtx::new(event_loop, events, token);
+        let mut ctx = RequestCtx::new(event_loop, events, token, self.cache.clone());
         debug!("MioServer.ready() {:?}", ctx.events);
         match token {
             UdpServer::UDP_SERVER_TOKEN => self.udp_server.server_ready(&mut ctx),
@@ -37,7 +37,7 @@ impl Handler for MioServer {
     #[allow(unused_variables)]
     fn timeout(&mut self, event_loop: &mut EventLoop<Self>, token: Self::Timeout) {
         info!("Got timeout: {:?}", token);
-        let mut ctx = RequestCtx::new(event_loop, EventSet::none(), token);
+        let mut ctx = RequestCtx::new(event_loop, EventSet::none(), token, self.cache.clone());
         match token {
             udp_tok if self.udp_server.base.owns(udp_tok) => self.udp_server.base.timeout(&mut ctx),
             tcp_tok if self.tcp_server.base.owns(tcp_tok) => self.tcp_server.base.timeout(&mut ctx),
@@ -55,21 +55,25 @@ impl Handler for MioServer {
     }
 }
 
+pub type SharedCache = Arc<RwLock<Cache>>;
 pub struct RequestCtx<'a> {
     pub event_loop: &'a mut EventLoop<MioServer>,
     pub events: EventSet,
     pub token: Token,
+    pub cache: SharedCache
 }
 
 impl<'a> RequestCtx<'a> {
     pub fn new(event_loop: &mut EventLoop<MioServer>,
             events: EventSet,
-            token: Token)
+            token: Token,
+            cache: Arc<RwLock<Cache>>)
             -> RequestCtx {
         return RequestCtx {
             event_loop: event_loop,
             events: events,
             token: token,
+            cache: cache
         };
     }
 }
@@ -96,11 +100,8 @@ impl MioServer {
                                     upstream_addr: upstream_server,
                                 };
 
-                                let cache = Cache::new();
-                                let shared_cache = Arc::new(RwLock::new(cache));
-
-                                let udp_server = UdpServer::new(address, start_token, max_connections, params, shared_cache.clone());
-                                let tcp_server = TcpServer::new(address, start_token, max_connections, params, shared_cache.clone());
+                                let udp_server = UdpServer::new(address, start_token, max_connections, params);
+                                let tcp_server = TcpServer::new(address, start_token, max_connections, params);
 
                                 //TODO: event loop per core?
                                 
@@ -114,12 +115,14 @@ impl MioServer {
                                                             EventSet::readable(),
                                                             PollOpt::edge() | PollOpt::oneshot());
                             
+                                let cache = Cache::new();
                                 let mut mio_server = MioServer {
                                     udp_server: udp_server,
                                     tcp_server: tcp_server,
+                                    cache: Arc::new(RwLock::new(cache))
                                 };
-                                 info!("Mio server running...");
-                                 let _ = event_loop.run(&mut mio_server);
+                                info!("Mio server running...");
+                                let _ = event_loop.run(&mut mio_server);
                                 drop(mio_server.udp_server);
                                 drop(mio_server.tcp_server);
                              })

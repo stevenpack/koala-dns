@@ -14,3 +14,5 @@ DNS Server in Rust
 - Message compression (label pointers) in outbound
 - Revisit Request<T> vs Request with a Box<IConnection>, Box<ISender> etc.
 - Try CVE-2015-7547 http://hn.premii.com/#/article/11195351 and the Ghost exploit and see how we would have fared.
+
+- Parsing query shoudl be Result<DnsQuestion, Error> and reply with error

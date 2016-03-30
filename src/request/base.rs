@@ -70,7 +70,7 @@ pub struct RequestBase {
     pub token: Token,
     pub state: RequestState,
     pub query_buf: Vec<u8>, //query without the length prefix
-    //pub query: Option<DnsMessage>,
+    pub query: Option<DnsMessage>,
     pub response_buf: Option<Vec<u8>>, //answer without the length prefix
     pub response: Option<DnsMessage>,
     pub timeout_handle: Option<Timeout>,
@@ -89,7 +89,7 @@ impl RequestBase {
         return RequestBase {
             token: token,
             state: RequestState::New,
-            //query: None,
+            query: None,
             query_buf: query_buf,
             response_buf: None,
             response: None,
