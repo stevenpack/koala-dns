@@ -15,7 +15,7 @@ use servers::tcp::TcpServer;
 pub struct MioServer {
     udp_server: UdpServer,
     tcp_server: TcpServer,
-    cache: Arc<RwLock<Cache>>
+    cache: SharedCache
 }
 
 impl Handler for MioServer {
@@ -37,6 +37,8 @@ impl Handler for MioServer {
     #[allow(unused_variables)]
     fn timeout(&mut self, event_loop: &mut EventLoop<Self>, token: Self::Timeout) {
         info!("Got timeout: {:?}", token);
+        //TODO: Expensive to clone the cache ref for every request? Can be stored on ServerBase. It's on
+        //RequestCtx for convenience so pipeline stages can just take the ctx as a parm and have everything
         let mut ctx = RequestCtx::new(event_loop, EventSet::none(), token, self.cache.clone());
         match token {
             udp_tok if self.udp_server.base.owns(udp_tok) => self.udp_server.base.timeout(&mut ctx),
@@ -67,7 +69,7 @@ impl<'a> RequestCtx<'a> {
     pub fn new(event_loop: &mut EventLoop<MioServer>,
             events: EventSet,
             token: Token,
-            cache: Arc<RwLock<Cache>>)
+            cache: SharedCache)
             -> RequestCtx {
         return RequestCtx {
             event_loop: event_loop,

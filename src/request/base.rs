@@ -3,9 +3,6 @@ use std::io::Error;
 use mio::{Token, Timeout, Handler, EventSet, Evented, PollOpt};
 use server_mio::RequestCtx;
 use dns::dns_entities::*;
-use std::sync::{Arc, RwLock};
-use cache::*;
-use buf::*;
 
 pub trait Request<T> {
     fn new_with(client_addr: SocketAddr, request: RequestBase) -> T;
@@ -23,32 +20,7 @@ pub trait Request<T> {
         }
     }
 
-    fn ready_cache(&mut self, ctx: &mut RequestCtx, cache_lock: Arc<RwLock<Cache>>) {
-        //if not in cache...
-        match cache_lock.read() {
-            Ok(cache) => {
-                let query = DnsMessage::parse(&self.get().query_buf);
-                let key = CacheKey::from(&query.question);
-                if let Some(entry) = cache.get(&key) {
-                    
-                    //TODO: need to adjust the TTL down?
-                    //TODO: cache the whole message?
-                    let mut answer_header = query.header.clone();
-                    answer_header.id = query.header.id;
-                    answer_header.qr = true;
-                    answer_header.ancount = entry.answers.len() as u16;
-                    let msg = DnsMessage::new_reply(answer_header, query.question, entry.answers.clone());
-                    debug!("Could answer with {:?} based on key {:?}", msg, entry.key);
-                    self.get_mut().response_buf = Some(msg.to_bytes());
-                    self.get_mut().response = Some(msg);                    
-                    self.get_mut().state = RequestState::ResponseFromCache;
-                } 
-                self.ready(ctx);
-            }
-            Err(e) => error!("Couldn't get read lock {:?}", e)
-        }
-    }
-
+   
     fn accept(&mut self, ctx: &mut RequestCtx);
     fn forward(&mut self, ctx: &mut RequestCtx);
     fn receive(&mut self, ctx: &mut RequestCtx);

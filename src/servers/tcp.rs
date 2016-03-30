@@ -7,8 +7,6 @@ use std::collections::HashMap;
 use request::base::*;
 use request::tcp::TcpRequest;
 use servers::base::*;
-use cache::*;
-use std::sync::{Arc, RwLock};
 
 pub struct TcpServer {
     pub server_socket: TcpListener,

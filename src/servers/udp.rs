@@ -6,8 +6,6 @@ use server_mio::{RequestCtx};
 use request::base::*;
 use request::udp::UdpRequest;
 use servers::base::*;
-use cache::*;
-use std::sync::{Arc, RwLock};
 
 pub struct UdpServer {
     pub server_socket: UdpSocket,

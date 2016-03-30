@@ -4,7 +4,6 @@ use server_mio::{MioServer,RequestCtx};
 use request::base::*;
 use cache::*;
 use std::net::SocketAddr;
-use std::sync::{Arc, RwLock};
 use dns::dns_entities::*;
 
 trait PipelineStage {
@@ -33,10 +32,6 @@ impl RequestPipeline {
             stages: stages
         }
     }
-
-    // fn push(&mut self, processor: Box<PipelineStage>) {
-    //     self.stages.push(processor);
-    // }
 }
 
 impl PipelineStage for RequestPipeline {
@@ -168,7 +163,9 @@ impl<T> ServerBase<T> where T: Request<T> {
 
     pub fn timeout(&mut self, ctx: &mut RequestCtx) {
         debug!("Timeout for {:?} {:?}", ctx.token, ctx.events);
-        self.requests.get_mut(ctx.token).unwrap().get_mut().on_timeout(ctx.token);
+        if let Some(mut req) = self.requests.get_mut(ctx.token) {
+            req.get_mut().on_timeout(ctx.token);
+        }
     }
 
     pub fn owns(&self, token: Token) -> bool {
@@ -177,9 +174,6 @@ impl<T> ServerBase<T> where T: Request<T> {
 
     pub fn request_ready(&mut self, ctx: &mut RequestCtx) {
         debug!("Request for {:?} {:?}", ctx.token, ctx.events);
-
-        
-
         let mut queue_response = false;
         if let Some(mut request) = self.requests.get_mut(ctx.token) {
             if let Some(reply) = self.pipeline.process(request.get_mut(), ctx) {
@@ -188,8 +182,6 @@ impl<T> ServerBase<T> where T: Request<T> {
                 request.ready(ctx);
                 queue_response = request.get().has_reply();    
             }
-            //request.ready_cache(ctx, self.cache.clone());
-            
         }
         if queue_response {
             self.queue_response(ctx);
