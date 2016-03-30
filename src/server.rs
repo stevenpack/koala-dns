@@ -35,6 +35,7 @@ impl ServerOps for Server {
         let run_handle = self.begin_start();
         let _ = run_handle.join();
 
+        //TODO restart
         debug!("Thread returned. TODO: restart it!");
     }
 

@@ -101,7 +101,7 @@ impl TcpServer {
     }
 
     pub fn receive_tcp(stream: &mut TcpStream) -> Vec<u8> {
-        let mut buf = Vec::<u8>::with_capacity(512);
+        let mut buf = Vec::<u8>::with_capacity(4096);
         match stream.try_read_buf(&mut buf) {
             Ok(Some(0)) => info!("Read 0 bytes"),
             Ok(Some(n)) => buf.truncate(n),

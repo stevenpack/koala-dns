@@ -47,7 +47,7 @@ impl Handler for MioServer {
     }
 
     fn notify(&mut self, event_loop: &mut EventLoop<Self>, msg: String) {
-        // todo: finish
+        //TODO: finish
         info!("Got a message {}", msg);
         if msg == format!("{}", "Stop!") {
             event_loop.shutdown()
@@ -95,25 +95,19 @@ impl MioServer {
         let udp_server = UdpServer::new(address, start_token, max_connections, params, shared_cache.clone());
         let tcp_server = TcpServer::new(address, start_token, max_connections, params, shared_cache.clone());
 
+        //TODO: event loop per core?
         let mut event_loop = EventLoop::new().unwrap();
         let _ = event_loop.register(&udp_server.server_socket,
                                     UdpServer::UDP_SERVER_TOKEN,
                                     EventSet::readable(),
                                     PollOpt::edge() | PollOpt::oneshot());
 
-          let _ = event_loop.register(&udp_server.server_socket,
-                                    UdpServer::UDP_SERVER_TOKEN,
-                                    EventSet::readable(),
-                                    PollOpt::edge() | PollOpt::oneshot());
-
-        let _ = event_loop.register(&tcp_server.server_socket,
+       let _ = event_loop.register(&tcp_server.server_socket,
                                     TcpServer::TCP_SERVER_TOKEN,
                                     EventSet::readable(),
                                     PollOpt::edge() | PollOpt::oneshot());
 
         let tx = event_loop.channel();
-
-
 
         let mut mio_server = MioServer {
             udp_server: udp_server,

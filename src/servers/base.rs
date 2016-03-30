@@ -8,6 +8,7 @@ use std::sync::{Arc, RwLock};
 use dns::dns_entities::*;
 
 pub struct ServerBase<T> where T : Request<T> {
+    //TODO: Slab is fixed size?
     pub requests: Slab<T>,
     pub responses: Vec<T>,
     pub params: RequestParams,
@@ -79,12 +80,9 @@ impl<T> ServerBase<T> where T: Request<T> {
         debug!("Request for {:?} {:?}", ctx.token, ctx.events);
 
         let mut queue_response = false;
-        match self.requests.get_mut(ctx.token) {
-            Some(mut request) => {
-                request.ready_cache(ctx, self.cache.clone());
-                queue_response = request.get().has_reply();
-            }
-            None => error!("{:?} got routed to wrong server", ctx.token),
+        if let Some(mut request) = self.requests.get_mut(ctx.token) {
+            request.ready_cache(ctx, self.cache.clone());
+            queue_response = request.get().has_reply();
         }
         if queue_response {
             self.queue_response(ctx.token);

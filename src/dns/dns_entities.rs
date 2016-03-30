@@ -72,7 +72,10 @@ pub struct DnsQuestion {
 #[derive(PartialEq)]
 #[derive(PartialOrd)]
 pub struct DnsName {
-    labels: Vec<String>
+    labels: Vec<String>,
+    // pos: usize, //offset of this name in the buffer for compression
+    // is_pointer: bool,
+    // pointer: usize
 }
 
 
@@ -94,6 +97,12 @@ impl IntoBytes for DnsMessage {
         self.question.write(packet);
         let mut pos = 0;
         if self.msg_type == DnsMessageType::Reply {
+
+            //apply compression
+            //for any DnsNames that exist already, point at them
+            //self.answers[1].is_pointer = true;
+            //self.answers[1].pointer = self.answers[0].pos;
+
             for answer in self.answers.iter() {
                 pos = answer.write(packet);
             }    
@@ -313,7 +322,6 @@ impl DnsAnswer {
 impl IntoBytes for DnsAnswer {
 
     fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
-        //packet.write_bytes(&DnsName::to_bytes(self.name.to_string()));
         self.name.write(packet);
         packet.write_u16(self.atype);
         packet.write_u16(self.aclass);
@@ -328,7 +336,6 @@ impl IntoBytes for DnsAnswer {
 impl IntoBytes for DnsQuestion {
 
     fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
-        //packet.write_bytes(&DnsName::to_bytes(self.qname.to_string()));
         self.qname.write(packet);
         packet.write_u16(self.qtype);
         packet.write_u16(self.qclass);
@@ -444,7 +451,6 @@ impl IntoBytes for DnsName {
        
         for label in self.labels.iter() {
             packet.write_u8(label.len() as u8);
-            //UTF8 double bytes? check encoding
             let label_bytes = label.clone().into_bytes();            
             packet.write_bytes(&label_bytes);
         }
