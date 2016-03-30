@@ -35,6 +35,7 @@ impl RequestPipeline {
 }
 
 impl PipelineStage for RequestPipeline {
+    #[allow(unused_variables)]
     fn process(&self, request: &mut RequestBase, ctx: &RequestCtx) -> Option<String> {
         for stage in self.stages.iter() {
             if let Some(response) = stage.process(request, ctx) {
@@ -46,6 +47,7 @@ impl PipelineStage for RequestPipeline {
 }
 
 impl PipelineStage for ParseStage {
+    #[allow(unused_variables)]
     fn process(&self, request: &mut RequestBase, ctx: &RequestCtx) -> Option<String> {        
         //TODO: parse should be Result. If it fails, we shoudl return a fail response here
 
@@ -56,6 +58,7 @@ impl PipelineStage for ParseStage {
 }
 
 impl PipelineStage for AuthorityStage {
+    #[allow(unused_variables)]
     fn process(&self, request: &mut RequestBase, ctx: &RequestCtx) -> Option<String> {        
         debug!("No Master File parsing yet, so no authoritative records");
         None
@@ -63,6 +66,7 @@ impl PipelineStage for AuthorityStage {
 }
 
 impl PipelineStage for CacheStage {
+    #[allow(unused_variables)]
     fn process(&self, request: &mut RequestBase, ctx: &RequestCtx) -> Option<String> {        
         debug!("Entered cahce stage");
         match ctx.cache.read() {
@@ -95,6 +99,7 @@ impl PipelineStage for CacheStage {
 }
 
 impl PipelineStage for ForwardStage {
+    #[allow(unused_variables)]
     fn process(&self, request: &mut RequestBase, ctx: &RequestCtx) -> Option<String> {        
         debug!("Forward does nothing");
         None 
@@ -176,11 +181,12 @@ impl<T> ServerBase<T> where T: Request<T> {
         debug!("Request for {:?} {:?}", ctx.token, ctx.events);
         let mut queue_response = false;
         if let Some(mut request) = self.requests.get_mut(ctx.token) {
-            if let Some(reply) = self.pipeline.process(request.get_mut(), ctx) {
-                queue_response = request.get().has_reply();    
-            } else {
-                request.ready(ctx);
-                queue_response = request.get().has_reply();    
+            match self.pipeline.process(request.get_mut(), ctx) {
+                Some(_) => queue_response = true,
+                None => {
+                    request.ready(ctx);
+                    queue_response = request.get().has_reply();                        
+                }
             }
         }
         if queue_response {
