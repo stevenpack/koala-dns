@@ -47,7 +47,7 @@ impl ServerOps for Server {
         let address = address_str.parse().unwrap_or_else(|e| panic!("Couldn't parse address {:?} {:?}", address_str, e));
         // TODO: new thread, restart if die
         let (tx, run_handle) = MioServer::start(address, self.upstream_server, self.timeout);
-        self.sender = Some(tx);
+        self.sender = tx;
         info!("Joining on run handle");
         return run_handle;
     }

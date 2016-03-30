@@ -98,7 +98,7 @@ impl IntoBytes for DnsMessage {
         let mut pos = 0;
         if self.msg_type == DnsMessageType::Reply {
 
-            //apply compression
+            //TODO: apply compression
             //for any DnsNames that exist already, point at them
             //self.answers[1].is_pointer = true;
             //self.answers[1].pointer = self.answers[0].pos;

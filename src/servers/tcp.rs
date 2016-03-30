@@ -92,6 +92,7 @@ impl TcpServer {
                 self.accepted.insert(ctx.token, stream);
                 debug!("tcp accepted {:?}", ctx.token);
                 match self.base.requests.get_mut(ctx.token) {
+                    //TODO piplines
                     Some(request) => request.ready(ctx),
                     None => error!("Request {:?} not found", ctx.token),
                 }
@@ -116,13 +117,12 @@ impl TcpServer {
 
     fn send_all(&mut self, ctx: &mut RequestCtx) {
         debug!("There are {} responses to send", self.base.responses.len());
-        self.base.responses.pop().and_then(|reply| {
+        if let Some(reply) = self.base.responses.pop() {
             let tok = reply.get().token;
             debug!("Will send {:?}", tok);
-            match self.accepted.get_mut(&ctx.token) {
-                Some(stream) => Some(reply.send(stream)),
-                None => None
+            if let Some(stream) = self.accepted.get_mut(&ctx.token) {
+                reply.send(stream)
             }
-        });
+        }
     }
 }

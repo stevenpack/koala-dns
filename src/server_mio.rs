@@ -79,51 +79,53 @@ impl MioServer {
     pub fn start(address: SocketAddr,
                  upstream_server: SocketAddr,
                  timeout: u64)
-                 -> (Sender<String>, JoinHandle<()>) {
+                 -> (Option<Sender<String>>, JoinHandle<()>) {
 
-        let max_connections = u16::max_value() as usize;
-        let start_token = 2;
-
-        let params = RequestParams {
-            timeout: timeout,
-            upstream_addr: upstream_server,
-        };
-
-        let cache = Cache::new();
-        let shared_cache = Arc::new(RwLock::new(cache));
-
-        let udp_server = UdpServer::new(address, start_token, max_connections, params, shared_cache.clone());
-        let tcp_server = TcpServer::new(address, start_token, max_connections, params, shared_cache.clone());
-
-        //TODO: event loop per core?
-        let mut event_loop = EventLoop::new().unwrap();
-        let _ = event_loop.register(&udp_server.server_socket,
-                                    UdpServer::UDP_SERVER_TOKEN,
-                                    EventSet::readable(),
-                                    PollOpt::edge() | PollOpt::oneshot());
-
-       let _ = event_loop.register(&tcp_server.server_socket,
-                                    TcpServer::TCP_SERVER_TOKEN,
-                                    EventSet::readable(),
-                                    PollOpt::edge() | PollOpt::oneshot());
-
-        let tx = event_loop.channel();
-
-        let mut mio_server = MioServer {
-            udp_server: udp_server,
-            tcp_server: tcp_server,
-        };
+        
         let run_handle = thread::Builder::new()
                              .name("dns_srv_net_io".to_string())
                              .spawn(move || {
+
+                                let mut event_loop = EventLoop::<MioServer>::new().unwrap();
+                                //let tx = event_loop.channel();
+                                let max_connections = u16::max_value() as usize;
+                                let start_token = 2;
+
+                                let params = RequestParams {
+                                    timeout: timeout,
+                                    upstream_addr: upstream_server,
+                                };
+
+                                let cache = Cache::new();
+                                let shared_cache = Arc::new(RwLock::new(cache));
+
+                                let udp_server = UdpServer::new(address, start_token, max_connections, params, shared_cache.clone());
+                                let tcp_server = TcpServer::new(address, start_token, max_connections, params, shared_cache.clone());
+
+                                //TODO: event loop per core?
+                                
+                                let _ = event_loop.register(&udp_server.server_socket,
+                                                            UdpServer::UDP_SERVER_TOKEN,
+                                                            EventSet::readable(),
+                                                            PollOpt::edge() | PollOpt::oneshot());
+
+                               let _ = event_loop.register(&tcp_server.server_socket,
+                                                            TcpServer::TCP_SERVER_TOKEN,
+                                                            EventSet::readable(),
+                                                            PollOpt::edge() | PollOpt::oneshot());
+                            
+                                let mut mio_server = MioServer {
+                                    udp_server: udp_server,
+                                    tcp_server: tcp_server,
+                                };
                                  info!("Mio server running...");
                                  let _ = event_loop.run(&mut mio_server);
-                                 drop(mio_server.udp_server);
-                                 drop(mio_server.tcp_server);
+                                drop(mio_server.udp_server);
+                                drop(mio_server.tcp_server);
                              })
                              .unwrap_or_else(|e| {
                                  panic!("Failed to start server thread. Error was {}", e)
                              });
-        return (tx, run_handle);
+        return (None, run_handle);
     }
 }
