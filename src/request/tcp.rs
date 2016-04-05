@@ -1,25 +1,27 @@
 
 use mio::tcp::{TcpStream};
-use std::net::SocketAddr;
 use std::io::{Read, Write};
 use request::base::*;
 use server_mio::RequestCtx;
 
+pub struct TcpRequestFactory;
+impl RequestFactory for TcpRequestFactory {
+    
+    fn new_with(&self, request: RequestBase) -> Box<Request> {
+        let req = TcpRequest {
+            upstream_socket: None,
+            base: request,
+        };
+        Box::new(req)
+    }
+}
+
 pub struct TcpRequest {
     upstream_socket: Option<TcpStream>,
-    client_addr: SocketAddr,
     base: RequestBase,
 }
 
-impl Request<TcpRequest> for TcpRequest {
-
-    fn new_with(client_addr: SocketAddr, request: RequestBase) -> TcpRequest {
-        return TcpRequest {
-            upstream_socket: None,
-            client_addr: client_addr,
-            base: request,
-        };
-    }
+impl Request for TcpRequest {
 
     fn get(&self) -> &RequestBase {
         &self.base
@@ -42,23 +44,21 @@ impl Request<TcpRequest> for TcpRequest {
 
     fn receive(&mut self, ctx: &mut RequestCtx) {
         debug_assert!(ctx.events.is_readable());
+        const PREFIX_LEN: usize = 2;
         let mut buf = [0; 4096];
-        match self.upstream_socket {
-            Some(ref mut sock) => {
-                match sock.read(&mut buf) {
-                    Ok(count) => {
-                        //store the response without the prefix
-                        debug!("Received {} bytes", count);
-                        if count < TcpRequest::PREFIX_LEN {
-                            warn!("tcp: Only received length prefix. No content");
-                            return;
-                        }
-                        self.base.on_receive(ctx, count - TcpRequest::PREFIX_LEN , &buf[TcpRequest::PREFIX_LEN..count]);
-                     },
-                    Err(e) => self.base.on_receive_err(ctx, e)
-                }
+        if let Some(ref mut sock) = self.upstream_socket {
+            match sock.read(&mut buf) {
+                Ok(count) => {
+                    //store the response without the prefix
+                    debug!("Received {} bytes", count);
+                    if count < PREFIX_LEN {
+                        warn!("tcp: Only received length prefix. No content");
+                        return;
+                    }
+                    self.base.on_receive(ctx, count - PREFIX_LEN , &buf[PREFIX_LEN..count]);
+                 },
+                Err(e) => self.base.on_receive_err(ctx, e)
             }
-            None => error!("tcp receive"),
         }
     }
 
@@ -81,28 +81,13 @@ impl Request<TcpRequest> for TcpRequest {
 }
 
 impl TcpRequest {
-    const PREFIX_LEN: usize = 2;
-
+    
+    //TODO: duplicated
     fn prefix_with_length(buf: &mut Vec<u8>) {
         //TCP responses are prefixed with a 2-byte length
         let len = buf.len() as u8;
         buf.insert(0, len);
         buf.insert(0, 0);
         debug!("Added 2b prefix of len: {:?}", len);
-    }
-
-    pub fn send(&self, socket: &mut TcpStream) {
-        match self.base.response_buf {
-            Some(ref response) => {
-                debug!("{:?} bytes in response", response.len());
-                let mut prefixed_response = response.clone();
-                Self::prefix_with_length(&mut prefixed_response);
-                match socket.write(&mut prefixed_response.as_slice()) {
-                    Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, self.client_addr),
-                    Err(e) => error!("Failed to send. {:?} Error was {:?}", self.client_addr, e),
-                }
-            }
-            None => error!("Trying to send before a response has been buffered."),
-        }
     }
 }

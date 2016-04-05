@@ -4,8 +4,20 @@ use mio::{Token, Timeout, Handler, EventSet, Evented, PollOpt};
 use server_mio::RequestCtx;
 use dns::dns_entities::*;
 
-pub trait Request<T> {
-    fn new_with(client_addr: SocketAddr, request: RequestBase) -> T;
+
+//Request
+ // Token, State, QueryBuf, Query
+//ForwardedRequest
+ // Token, QueryBuf,Params,TimeoutHandle
+//Response
+// Token, Response, ResponseBuf
+
+pub trait RequestFactory {
+    fn new_with(&self, request: RequestBase) -> Box<Request>;
+}
+
+pub trait Request {
+    //fn new_with(request: RequestBase) -> T;
     fn get(&self) -> &RequestBase;
     fn get_mut(&mut self) -> &mut RequestBase;
 
@@ -15,15 +27,30 @@ pub trait Request<T> {
         match self.get().state {
             RequestState::New => self.accept(ctx),
             RequestState::Accepted => self.forward(ctx),
-            RequestState::Forwarded => self.receive(ctx),
+            RequestState::Forwarded => {let _ = self.receive(ctx);},
             _ => debug!("Nothing to do for this state {:?}", self.get().state),
         }
     }
-
    
     fn accept(&mut self, ctx: &mut RequestCtx);
     fn forward(&mut self, ctx: &mut RequestCtx);
     fn receive(&mut self, ctx: &mut RequestCtx);
+}
+
+pub struct Response {
+    pub token: Token,
+    pub msg: DnsMessage,
+    pub bytes: Vec<u8>, //answer without the length prefix
+}
+
+impl Response {
+    pub fn new(token: Token, msg: DnsMessage, bytes: Vec<u8>) -> Response {
+        Response {
+            token: token,
+            msg: msg,
+            bytes: bytes
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -105,7 +132,7 @@ impl RequestBase {
         }        
     }
 
-    pub fn buffer_response(&mut self, buf: &[u8], count: usize) {
+    pub fn buffer_response(&mut self, buf: &[u8], count: usize)  {
         let mut response = Vec::with_capacity(count);
         response.extend_from_slice(&buf);
         response.truncate(count);
@@ -121,9 +148,9 @@ impl RequestBase {
         self.response_buf = Some(reply.to_bytes());
     }
 
-    pub fn has_reply(&self) -> bool {
-        return self.response_buf.is_some() || self.response.is_some();
-    }
+    // pub fn has_reply(&self) -> bool {
+    //     return self.response_buf.is_some() || self.response.is_some();
+    // }
 
     pub fn accept(&mut self, ctx: &mut RequestCtx, sock: &Evented) {
         debug_assert!(ctx.events.is_readable());

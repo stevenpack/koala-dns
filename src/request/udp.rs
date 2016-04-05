@@ -1,25 +1,35 @@
 extern crate bytes;
 use mio::udp::UdpSocket;
-use std::net::SocketAddr;
 use request::base::*;
 use server_mio::RequestCtx;
+
+pub struct UdpRequestFactory;
+impl RequestFactory for UdpRequestFactory {
+    
+    fn new_with(&self, request: RequestBase) -> Box<Request> {
+        let req = UdpRequest {
+            upstream_socket: None,
+            base: request,
+        };
+        Box::new(req)
+    }
+}
+
 //
 // Encapsulates the components of a dns request and response over Udp.
 //
 pub struct UdpRequest {
     upstream_socket: Option<UdpSocket>,
-    client_addr: SocketAddr,
     base: RequestBase,
 }
 
-impl Request<UdpRequest> for UdpRequest {
-    fn new_with(client_addr: SocketAddr, request: RequestBase) -> UdpRequest {
-        return UdpRequest {
-            upstream_socket: None,
-            client_addr: client_addr,
-            base: request,
-        };
-    }
+impl Request for UdpRequest {
+    // fn new_with(request: RequestBase) -> UdpRequest {
+    //     return UdpRequest {
+    //         upstream_socket: None,
+    //         base: request,
+    //     }; 
+    // }
 
     fn get(&self) -> &RequestBase {
         &self.base
@@ -42,15 +52,12 @@ impl Request<UdpRequest> for UdpRequest {
     fn receive(&mut self, ctx: &mut RequestCtx) {
         debug_assert!(ctx.events.is_readable());
         let mut buf = [0; 4096];
-        match self.upstream_socket {
-            Some(ref sock) => {
-                match sock.recv_from(&mut buf) {
-                    Ok(Some((count, _))) => self.base.on_receive(ctx, count, &buf),
-                    Ok(None) => debug!("No data received on upstream_socket. {:?}", ctx.token),
-                    Err(e) => self.base.on_receive_err(ctx, e)
-                }
-            },
-            None => error!("udp receive")
+        if let Some(ref sock) = self.upstream_socket {
+            match sock.recv_from(&mut buf) {
+                Ok(Some((count, _))) => return self.base.on_receive(ctx, count, &buf),
+                Ok(None) => debug!("No data received on upstream_socket. {:?}", ctx.token),
+                Err(e) => self.base.on_receive_err(ctx, e)
+            }
         }
     }
 
@@ -64,22 +71,6 @@ impl Request<UdpRequest> for UdpRequest {
                   }
             },
             None => error!("udp forward")
-        }
-    }
-}
-
-impl UdpRequest {
-
-    pub fn send(&self, socket: &UdpSocket) {
-        match self.base.response_buf {
-            Some(ref response) => {
-                info!("{:?} bytes to send", response.len());
-                match socket.send_to(&mut &response.as_slice(), &self.client_addr) {
-                    Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, self.client_addr),
-                    Err(e) => error!("Failed to send. {:?} Error was {:?}", self.client_addr, e),
-                }
-            }
-            None => error!("Trying to send before a response has been buffered."),
         }
     }
 }

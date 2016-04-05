@@ -1,16 +1,17 @@
 use std::net::SocketAddr;
+use std::io::Write;
 use server_mio::{RequestCtx};
 use mio::{EventSet, Token, TryRead};
 use mio::util::Slab;
 use mio::tcp::{TcpStream,TcpListener};
 use std::collections::HashMap;
 use request::base::*;
-use request::tcp::TcpRequest;
+use request::tcp::{TcpRequest,TcpRequestFactory};
 use servers::base::*;
 
 pub struct TcpServer {
     pub server_socket: TcpListener,
-    pub base: ServerBase<TcpRequest>,
+    pub base: ServerBase,
     pending: HashMap<Token, TcpStream>,
     accepted: HashMap<Token, TcpStream>,
 }
@@ -21,12 +22,12 @@ impl TcpServer {
     pub fn new(addr: SocketAddr, start_token: usize, max_connections: usize, params: RequestParams) -> TcpServer {
         let listener = Self::bind_tcp(addr);
         let requests = Slab::new_starting_at(Token(start_token), max_connections);
-        let responses = Vec::<TcpRequest>::new();
+        let factory = Box::new(TcpRequestFactory);
         TcpServer {
             server_socket: listener,
             pending: HashMap::<Token, TcpStream>::new(),
             accepted: HashMap::<Token, TcpStream>::new(),
-            base: ServerBase::new(requests, responses, params, Self::TCP_SERVER_TOKEN),
+            base: ServerBase::new(requests, factory, params, Self::TCP_SERVER_TOKEN),
         }
     }
 
@@ -60,7 +61,7 @@ impl TcpServer {
             Ok(Some((stream, addr))) => {
                     debug!("Accepted tcp request from {:?}. Now pending...", addr);
                     //request gets created with server token, and then updated with the slab token
-                    let req = self.base.build_request(ctx.token, addr, Vec::<u8>::new().as_slice());
+                    let req = self.base.build_request(ctx.token, Vec::<u8>::new().as_slice());
                     match self.base.requests.insert_with(|_| req) {
                         Some(token) => {
                             self.update_token(ctx.token, token);
@@ -116,11 +117,29 @@ impl TcpServer {
     fn send_all(&mut self, ctx: &mut RequestCtx) {
         debug!("There are {} responses to send", self.base.responses.len());
         if let Some(reply) = self.base.responses.pop() {
-            let tok = reply.get().token;
+            let tok = reply.token;
             debug!("Will send {:?}", tok);
             if let Some(stream) = self.accepted.get_mut(&ctx.token) {
-                reply.send(stream)
+                Self::send(reply, stream)
             }
+        }
+    }
+
+    fn prefix_with_length(buf: &mut Vec<u8>) {
+        //TCP responses are prefixed with a 2-byte length
+        let len = buf.len() as u8;
+        buf.insert(0, len);
+        buf.insert(0, 0);
+        debug!("Added 2b prefix of len: {:?}", len);
+    }
+
+    pub fn send(response: Response, socket: &mut TcpStream) {
+        debug!("{:?} bytes in response", response.bytes.len());
+        let mut prefixed_response = response.bytes;
+        Self::prefix_with_length(&mut prefixed_response);
+        match socket.write(&mut prefixed_response.as_slice()) {
+            Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, socket.peer_addr()),
+            Err(e) => error!("Failed to send. {:?} Error was {:?}", socket.peer_addr(), e),
         }
     }
 }

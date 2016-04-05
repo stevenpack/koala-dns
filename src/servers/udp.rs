@@ -1,15 +1,17 @@
 use std::net::SocketAddr;
+use std::collections::HashMap;
 use mio::{Token, EventSet};
 use mio::util::Slab;
 use mio::udp::UdpSocket;
 use server_mio::{RequestCtx};
 use request::base::*;
-use request::udp::UdpRequest;
+use request::udp::{UdpRequest, UdpRequestFactory};
 use servers::base::*;
 
 pub struct UdpServer {
     pub server_socket: UdpSocket,
-    pub base: ServerBase<UdpRequest>
+    pub base: ServerBase,
+    accepted: HashMap<Token, SocketAddr>
 }
 
 impl UdpServer{
@@ -17,10 +19,11 @@ impl UdpServer{
     pub fn new(addr: SocketAddr, start_token: usize, max_connections: usize, params: RequestParams) -> UdpServer {
         let server_socket = Self::bind_udp(addr);
         let requests = Slab::new_starting_at(Token(start_token), max_connections);
-        let responses = Vec::<UdpRequest>::new();
+        let factory = Box::new(UdpRequestFactory);
         UdpServer {
             server_socket: server_socket,
-            base: ServerBase::<UdpRequest>::new(requests, responses, params, Self::UDP_SERVER_TOKEN)
+            base: ServerBase::new(requests, factory, params, Self::UDP_SERVER_TOKEN),
+            accepted: HashMap::<Token, SocketAddr>::new()
         }
     }
 
@@ -32,9 +35,11 @@ impl UdpServer{
                           .unwrap_or_else(|e| panic!("Failed to bind udp socket. Error was {}", e));
         return udp_socket;
     }
-    pub fn accept(&mut self, token: Token) -> Option<UdpRequest> {
-        return self.receive(&self.server_socket)
-            .and_then(|(addr, buf)| Some(self.base.build_request(token, addr, buf.as_slice())));
+    pub fn accept(&mut self, token: Token) -> Option<Box<Request>> {
+        if let Some((_, buf)) = self.receive(&self.server_socket) {
+            return Some(self.base.build_request(token, buf.as_slice()));
+        }
+        None
     }
 
     fn receive(&self, socket: &UdpSocket) -> Option<(SocketAddr, Vec<u8>)> {
@@ -84,6 +89,16 @@ impl UdpServer{
 
     fn send_all(&mut self) {
         debug!("There are {} responses to send", self.base.responses.len());
-        self.base.responses.pop().and_then(|reply| Some(reply.send(&self.server_socket)));
+        self.base.responses.pop().and_then(|reply| Some(self.send(&reply, &self.server_socket)));
+    }
+
+    fn send(&self, response: &Response, socket: &UdpSocket) {
+        if let Some(client_addr) = self.accepted.get(&response.token) {
+            info!("{:?} bytes to send", response.bytes.len());
+            match socket.send_to(&mut &response.bytes, &client_addr) {
+                Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, &client_addr),
+                Err(e) => error!("Failed to send. {:?} Error was {:?}", &client_addr, e),
+            }            
+        }
     }
 }
