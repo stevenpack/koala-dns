@@ -11,67 +11,84 @@ use dns::dns_entities::*;
  // Token, QueryBuf,Params,TimeoutHandle
 //Response
 // Token, Response, ResponseBuf
-
-pub trait RequestFactory {
-    fn new_with(&self, request: RequestBase) -> Box<Request>;
+pub struct RawRequest {
+    pub token: Token,
+    pub bytes: Vec<u8>,
+    pub query: Option<DnsMessage>
 }
 
-pub trait Request {
-    //fn new_with(request: RequestBase) -> T;
-    fn get(&self) -> &RequestBase;
-    fn get_mut(&mut self) -> &mut RequestBase;
+impl RawRequest {
+    pub fn new(token: Token, bytes: Vec<u8>) -> RawRequest {
+        RawRequest {
+            token: token,
+            bytes: bytes,
+            query: None
+        }
+    }
+}
 
-    fn ready(&mut self, ctx: &mut RequestCtx) {
+pub trait RequestFactory {
+    fn new_with(&self, request: ForwardedRequestBase) -> Box<ForwardedRequest>;
+}
+
+pub trait ForwardedRequest {
+    //fn new_with(request: RequestBase) -> T;
+    fn get(&self) -> &ForwardedRequestBase;
+    fn get_mut(&mut self) -> &mut ForwardedRequestBase;
+
+    fn ready(&mut self, ctx: &mut RequestCtx) -> Option<Response> {
         debug!("State {:?} {:?} {:?}", self.get().state, ctx.token, ctx.events);
         // todo: authorative? cached? forward?
+        let opt_response = None;
         match self.get().state {
-            RequestState::New => self.accept(ctx),
-            RequestState::Accepted => self.forward(ctx),
-            RequestState::Forwarded => {let _ = self.receive(ctx);},
+            ForwardedRequestState::New => self.accept(ctx),
+            ForwardedRequestState::Accepted => self.forward(ctx),
+            ForwardedRequestState::Forwarded => opt_response = self.receive(ctx),
             _ => debug!("Nothing to do for this state {:?}", self.get().state),
         }
+        opt_response
     }
    
     fn accept(&mut self, ctx: &mut RequestCtx);
     fn forward(&mut self, ctx: &mut RequestCtx);
-    fn receive(&mut self, ctx: &mut RequestCtx);
+    fn receive(&mut self, ctx: &mut RequestCtx) -> Option<Response>;
 }
 
 pub struct Response {
     pub token: Token,
-    pub msg: DnsMessage,
     pub bytes: Vec<u8>, //answer without the length prefix
+    pub msg: DnsMessage,
 }
 
 impl Response {
-    pub fn new(token: Token, msg: DnsMessage, bytes: Vec<u8>) -> Response {
+    pub fn new(token: Token, bytes: Vec<u8>, msg: DnsMessage) -> Response {
         Response {
             token: token,
-            msg: msg,
-            bytes: bytes
+            bytes: bytes,
+            msg: msg
         }
     }
 }
 
 #[derive(Debug)]
 #[derive(PartialEq)]
-pub enum RequestState {
+pub enum ForwardedRequestState {
     New,
     Accepted,
+    Parsed,
     Forwarded,
     ResponseReceived,
-    ResponseFromCache,
     Error,
 }
 
 //RequestMixin
-pub struct RequestBase {
+pub struct ForwardedRequestBase {
     pub token: Token,
-    pub state: RequestState,
+    pub state: ForwardedRequestState,
     pub query_buf: Vec<u8>, //query without the length prefix
     pub query: Option<DnsMessage>,
-    pub response_buf: Option<Vec<u8>>, //answer without the length prefix
-    pub response: Option<DnsMessage>,
+    // pub response_buf: Option<Vec<u8>>, //answer without the length prefix
+    // pub response: Option<DnsMessage>,
     pub timeout_handle: Option<Timeout>,
     pub params: RequestParams,
 }
@@ -83,21 +100,21 @@ pub struct RequestParams {
     pub upstream_addr: SocketAddr,
 }
 
-impl RequestBase {
-    pub fn new(token: Token, query_buf: Vec<u8>, params: RequestParams) -> RequestBase {
-        return RequestBase {
+impl ForwardedRequestBase {
+    pub fn new(token: Token, query_buf: Vec<u8>, params: RequestParams) -> ForwardedRequestBase {
+        return ForwardedRequestBase {
             token: token,
-            state: RequestState::New,
+            state: ForwardedRequestState::New,
             query: None,
             query_buf: query_buf,
-            response_buf: None,
-            response: None,
+            // response_buf: None,
+            // response: None,
             timeout_handle: None,
             params: params,
         };
     }
 
-    pub fn set_state(&mut self, state: RequestState) {
+    pub fn set_state(&mut self, state: ForwardedRequestState) {
         debug!("{:?} -> {:?}", self.state, state);
         self.state = state;
     }
@@ -106,7 +123,7 @@ impl RequestBase {
         self.timeout_handle = Some(timeout);
     }
 
-    pub fn on_timeout(&mut self, token: Token) {
+    pub fn on_timeout(&mut self, token: Token) -> Response {
         self.error_with(format!("{:?} timed out", token));
     }
 
@@ -132,44 +149,46 @@ impl RequestBase {
         }        
     }
 
-    pub fn buffer_response(&mut self, buf: &[u8], count: usize)  {
-        let mut response = Vec::with_capacity(count);
-        response.extend_from_slice(&buf);
-        response.truncate(count);
-        self.response_buf = Some(response);
+    pub fn buffer_response(&mut self, buf: &[u8], count: usize) -> Response  {
+        let mut bytes = Vec::with_capacity(count);
+        bytes.extend_from_slice(&buf);
+        bytes.truncate(count);        
         debug!("buffered {:?} bytes for response", count);
+        //TODO: parse here, or on adding to cache? As that's what it's for...
+        Response::new(self.token, bytes, DnsMessage::parse(&bytes))
     }
 
-    pub fn error_with(&mut self, err_msg: String) {
-        self.set_state(RequestState::Error);
+    pub fn error_with(&mut self, err_msg: String) -> Response {
+        self.set_state(ForwardedRequestState::Error);
         debug!("{}", err_msg);
         let req = DnsMessage::parse(&self.query_buf);
         let reply = DnsHeader::new_error(req.header, 2);
-        self.response_buf = Some(reply.to_bytes());
+        let bytes = reply.to_bytes();
+        Response::new(self.token, bytes, reply)
     }
 
-    // pub fn has_reply(&self) -> bool {
-    //     return self.response_buf.is_some() || self.response.is_some();
-    // }
+    pub fn has_reply(&self) -> bool {
+        return self.response_buf.is_some() || self.response.is_some();
+    }
 
     pub fn accept(&mut self, ctx: &mut RequestCtx, sock: &Evented) {
         debug_assert!(ctx.events.is_readable());
-        self.set_state(RequestState::Accepted);
-        debug!("{:?}", DnsMessage::parse(&self.query_buf));
+        self.set_state(ForwardedRequestState::Accepted);
+        //debug!("{:?}", DnsMessage::parse(&self.query_buf));
         //todo: if need to forward...
         self.register_upstream(ctx, EventSet::writable(), sock);
         debug!("Accepted and registered upstream");
     }
 
-    pub fn on_receive(&mut self, ctx: &mut RequestCtx, count: usize, buf: &[u8]) {
+    pub fn on_receive(&mut self, ctx: &mut RequestCtx, count: usize, buf: &[u8]) -> Option<Response> {
        if count > 0 {
-           //trace!("{:#?}", DnsMessage::parse(buf));
-           self.buffer_response(&buf, count);
+           //trace!("{:#?}", DnsMessage::parse(buf));           
            self.clear_timeout(ctx);
-           self.set_state(RequestState::ResponseReceived);
-       } else {
-           warn!("No data received on upstream_socket. {:?}", ctx.token);
-       }
+           self.set_state(ForwardedRequestState::ResponseReceived);
+           return self.buffer_response(&buf, count);
+       } 
+       warn!("No data received on upstream_socket. {:?}", ctx.token);
+       None
     }
     pub fn on_receive_err(&mut self, ctx: &mut RequestCtx, e: Error) {
         self.error_with(format!("Receive failed on {:?}. {:?}", ctx.token, e));
@@ -178,7 +197,7 @@ impl RequestBase {
 
     pub fn on_forward(&mut self, ctx: &mut RequestCtx, count: usize, sock: &Evented) {
         debug!("Sent {:?} bytes", count);
-        self.set_state(RequestState::Forwarded);
+        self.set_state(ForwardedRequestState::Forwarded);
         self.register_upstream(ctx, EventSet::readable(), sock);
         // TODO: No, don't just timeout forwarded requests, time out the whole request,
         // be it cached, authorative or forwarded

@@ -6,7 +6,7 @@ use server_mio::RequestCtx;
 pub struct UdpRequestFactory;
 impl RequestFactory for UdpRequestFactory {
     
-    fn new_with(&self, request: RequestBase) -> Box<Request> {
+    fn new_with(&self, request: ForwardedRequestBase) -> Box<ForwardedRequest> {
         let req = UdpRequest {
             upstream_socket: None,
             base: request,
@@ -20,22 +20,16 @@ impl RequestFactory for UdpRequestFactory {
 //
 pub struct UdpRequest {
     upstream_socket: Option<UdpSocket>,
-    base: RequestBase,
+    base: ForwardedRequestBase,
 }
 
-impl Request for UdpRequest {
-    // fn new_with(request: RequestBase) -> UdpRequest {
-    //     return UdpRequest {
-    //         upstream_socket: None,
-    //         base: request,
-    //     }; 
-    // }
-
-    fn get(&self) -> &RequestBase {
+impl ForwardedRequest for UdpRequest {
+  
+    fn get(&self) -> &ForwardedRequestBase {
         &self.base
     }
 
-    fn get_mut(&mut self) -> &mut RequestBase {
+    fn get_mut(&mut self) -> &mut ForwardedRequestBase {
         &mut self.base
     }
 
@@ -49,7 +43,7 @@ impl Request for UdpRequest {
         }
     }
 
-    fn receive(&mut self, ctx: &mut RequestCtx) {
+    fn receive(&mut self, ctx: &mut RequestCtx) -> Option<Response> {
         debug_assert!(ctx.events.is_readable());
         let mut buf = [0; 4096];
         if let Some(ref sock) = self.upstream_socket {

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use mio::{EventLoop, EventSet, Token, PollOpt, Evented};
 use mio::util::{Slab};
 use server_mio::{MioServer,RequestCtx};
@@ -6,11 +7,16 @@ use cache::*;
 //use std::net::SocketAddr;
 use dns::dns_entities::*;
 
-trait PipelineStage {
-    fn process(&self, request: &mut RequestBase, ctx: &RequestCtx) -> Option<Response>;
+pub trait PipelineStage {
+    fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response>;
 }
 
-struct RequestPipeline {
+// pub struct PipelineResult {
+//     response: Option<Response>,
+//     forwarded: Option<Box<ForwardedRequest>>
+// }
+
+pub struct RequestPipeline {
     stages: Vec<Box<PipelineStage>>
 }
 
@@ -36,7 +42,7 @@ impl RequestPipeline {
 
 impl PipelineStage for RequestPipeline {
     #[allow(unused_variables)]
-    fn process(&self, request: &mut RequestBase, ctx: &RequestCtx) -> Option<Response> {
+    fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response> {
         for stage in self.stages.iter() {
             if let Some(response) = stage.process(request, ctx) {
                 return Some(response)
@@ -48,10 +54,9 @@ impl PipelineStage for RequestPipeline {
 
 impl PipelineStage for ParseStage {
     #[allow(unused_variables)]
-    fn process(&self, request: &mut RequestBase, ctx: &RequestCtx) -> Option<Response> {        
-        //TODO: parse should be Result. If it fails, we shoudl return a fail response here
-
-        request.query = Some(DnsMessage::parse(&request.query_buf));
+    fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response> {        
+        //TODO: DnsMessage::parse should be Result. If it fails, we shoudl return a fail response here
+        request.query = Some(DnsMessage::parse(&request.bytes));
         debug!("Parsed query");
         None
     }
@@ -59,7 +64,7 @@ impl PipelineStage for ParseStage {
 
 impl PipelineStage for AuthorityStage {
     #[allow(unused_variables)]
-    fn process(&self, request: &mut RequestBase, ctx: &RequestCtx) -> Option<Response> {        
+    fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response> {        
         debug!("No Master File parsing yet, so no authoritative records");
         None
     }
@@ -67,14 +72,14 @@ impl PipelineStage for AuthorityStage {
 
 impl PipelineStage for CacheStage {
     #[allow(unused_variables)]
-    fn process(&self, request: &mut RequestBase, ctx: &RequestCtx) -> Option<Response> {        
+    fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response> {        
         debug!("Entered cahce stage");
         match ctx.cache.read() {
             Ok(cache) => {
-                let query = DnsMessage::parse(&request.query_buf);
+                let query = DnsMessage::parse(&request.bytes);
                 let key = CacheKey::from(&query.question);
                 if let Some(entry) = cache.get(&key) {
-                    request.state = RequestState::ResponseFromCache;
+                    //request.state = ForwardedRequestState::ResponseFromCache;
                     //TODO: need to adjust the TTL down?
                     //TODO: cache the whole message?
                     let mut answer_header = query.header.clone();
@@ -97,33 +102,55 @@ impl PipelineStage for CacheStage {
 
 impl PipelineStage for ForwardStage {
     #[allow(unused_variables)]
-    fn process(&self, request: &mut RequestBase, ctx: &RequestCtx) -> Option<Response> {        
-        debug!("Forward does nothing");
+    fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response> {        
+        debug!("Forward does nothing. Create ForwardRequest from RequestRaw...");
         None 
     }
 }
 
 pub struct ServerBase {
-    //TODO: Slab is fixed size?
     pub request_factory: Box<RequestFactory>,
-    pub requests: Slab<Box<Request>>,
+    pub forwarded: HashMap<Token, Box<ForwardedRequest>>,
     pub responses: Vec<Response>,
     pub params: RequestParams,
+    //socket: Box<Evented> //could add socket with box so server registration happens here
     server_token: Token,
+    last_request: Token,
     pipeline: RequestPipeline
 }
 
 impl ServerBase {
-    pub fn new(requests: Slab<Box<Request>>, factory: Box<RequestFactory>, params: RequestParams, token: Token) -> ServerBase {
-        ServerBase {
-            requests: requests,
+    pub fn new(factory: Box<RequestFactory>, params: RequestParams, token: Token) -> ServerBase {
+        debug!("New server listening on {:?}", token);
+        ServerBase {            
             request_factory: factory,
+            forwarded: HashMap::<Token, Box<ForwardedRequest>>::new(), //TODO: max forwards setting
             responses: Vec::<Response>::new(),
             params: params,
             server_token: token,
+            last_request: Token(10), //Some number clearly different from the starting token
             pipeline: RequestPipeline::new()
         }
     }
+
+    pub fn process(&mut self, mut request: &mut RawRequest, mut ctx: &mut RequestCtx) {
+        if let Some(response) = self.pipeline.process(&mut request, ctx) {
+            self.queue_response(ctx, response);            
+            //reregister
+        } else {
+            //TODO: would rather this be in the pipeline...
+            //No response, forward upstream
+            let mut forward = self.build_forward_request(request.token, &request.bytes);
+            debug!("Added {:?} to forwarded", forward.get().token);
+            forward.ready(&mut ctx);
+            self.forwarded.insert(forward.get().token, forward);
+        }
+        // if request.state == forwarded {
+        //     self.forwarded.push
+        //     //reregister
+        // }
+    }
+
     pub fn register(&self, event_loop: &mut EventLoop<MioServer>,
                 socket: &Evented,
                 events: EventSet,
@@ -145,56 +172,61 @@ impl ServerBase {
     }
 
     pub fn queue_response(&mut self, ctx: &RequestCtx, response: Response) {
-        if let Some(req) = self.requests.remove(ctx.token) {
-            debug!("parsing response...");
-            let msg = DnsMessage::parse(&req.get().response_buf.as_ref().unwrap());
-            debug!("{:?}", msg);
-            //TODO: TTL must be same for all answers? Or the min?
-            if let Some(cache_entry) = CacheEntry::from(&msg) {
-                ctx.cache.write().unwrap().upsert(cache_entry.key.clone(), cache_entry);    
-            }            
-            self.responses.push(response);
-            debug!("queued response {:?}", ctx.token);
-        }
+        if let Some(cache_entry) = CacheEntry::from(&response.msg) {
+            ctx.cache.write().unwrap().upsert(cache_entry.key.clone(), cache_entry);    
+        }            
+        self.responses.push(response);
+        debug!("queued response {:?}", ctx.token);        
     }
 
-    pub fn build_request(&mut self, token: Token, bytes: &[u8]) -> Box<Request> {
+    pub fn build_forward_request(&mut self, token: Token, bytes: &[u8]) -> Box<ForwardedRequest> {
         let mut buf = Vec::<u8>::with_capacity(bytes.len());
         buf.extend_from_slice(bytes);
-        let request = RequestBase::new(token, buf, self.params);
-
+        let request = ForwardedRequestBase::new(token, buf, self.params);
         self.request_factory.new_with(request)
     }
 
     pub fn timeout(&mut self, ctx: &mut RequestCtx) {
+        //TODO: timeout is for forwarded requests...
         debug!("Timeout for {:?} {:?}", ctx.token, ctx.events);
-        if let Some(mut req) = self.requests.get_mut(ctx.token) {
+        if let Some(mut req) = self.forwarded.get_mut(&ctx.token) {
             req.get_mut().on_timeout(ctx.token);
         }
     }
 
     pub fn owns(&self, token: Token) -> bool {
-        self.requests.contains(token)
+        //todo: self.pipeline.owns(forward stage)
+        self.forwarded.contains_key(&token)
     }
 
     pub fn request_ready(&mut self, ctx: &mut RequestCtx) {
         debug!("Request for {:?} {:?}", ctx.token, ctx.events);
         let mut queue_response = false;
-        let mut opt_response = None;
-        if let Some(mut request) = self.requests.get_mut(ctx.token) {
-            match self.pipeline.process(request.get_mut(), ctx) {
-                Some(response) => {
-                    opt_response = Some(response);
-                    queue_response = true;
-                },
-                None => request.ready(ctx)
-            }
+        //let mut opt_response = None;
+        if let Some(ref mut request) = self.forwarded.get_mut(&ctx.token) {
+            request.ready(ctx);
+            //TODO: Not here
+            queue_response = request.get().has_reply();
         }
         if queue_response {
-            self.queue_response(ctx, opt_response.unwrap());
+            let boxed_req = self.forwarded.remove(&ctx.token).unwrap();
+            let base = boxed_req.get();
+            match base.response_buf {
+                Some(ref x) => {
+                    let msg = DnsMessage::parse(x);       
+                    let response = Response::new(ctx.token, msg, x.clone());
+                    self.queue_response(ctx, response); 
+                }, None =>{}
+            }            
         }
         // let mut req = self.requests.remove(ctx.token).unwrap();
         // let response = self.pipeline.process(req.get_mut(), ctx).unwrap();
         // self.responses.push(response);
+    }
+
+    pub fn next_token(&mut self) -> Token {
+        self.last_request = Token(self.last_request.as_usize() + 1);
+        debug!("next_token gave -> {:?}", self.last_request);
+        self.last_request
     }
 }

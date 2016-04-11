@@ -30,8 +30,8 @@ impl Handler for MioServer {
         match token {
             UdpServer::UDP_SERVER_TOKEN => self.udp_server.server_ready(&mut ctx),
             TcpServer::TCP_SERVER_TOKEN => self.tcp_server.server_ready(&mut ctx),
-            udp_tok if self.udp_server.base.owns(udp_tok) => self.udp_server.request_ready(&mut ctx),
-            tcp_tok if self.tcp_server.base.owns(tcp_tok) => self.tcp_server.request_ready(&mut ctx),
+            udp_tok if self.udp_server.owns(udp_tok) => self.udp_server.request_ready(&mut ctx),
+            tcp_tok if self.tcp_server.owns(tcp_tok) => self.tcp_server.request_ready(&mut ctx),
             unknown_tok => error!("Unknown token {:?}", unknown_tok)
         }
     }
@@ -93,17 +93,15 @@ impl MioServer {
             .spawn(move || {
 
                 let mut event_loop = EventLoop::<MioServer>::new().unwrap();
-                //let tx = event_loop.channel();
                 let max_connections = u16::max_value() as usize;
-                let start_token = 2;
 
                 let params = RequestParams {
                     timeout: timeout,
                     upstream_addr: upstream_server,
                 };
 
-                let udp_server = UdpServer::new(address, start_token, max_connections, params);
-                let tcp_server = TcpServer::new(address, start_token, max_connections, params);
+                let udp_server = UdpServer::new(address, max_connections, params);
+                let tcp_server = TcpServer::new(address, max_connections, params);
 
                 //TODO: event loop per core?
 

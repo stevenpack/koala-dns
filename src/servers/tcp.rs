@@ -6,7 +6,7 @@ use mio::util::Slab;
 use mio::tcp::{TcpStream,TcpListener};
 use std::collections::HashMap;
 use request::base::*;
-use request::tcp::{TcpRequest,TcpRequestFactory};
+use request::tcp::{TcpRequestFactory};
 use servers::base::*;
 
 pub struct TcpServer {
@@ -19,15 +19,14 @@ pub struct TcpServer {
 impl TcpServer {
     pub const TCP_SERVER_TOKEN: Token = Token(0);
 
-    pub fn new(addr: SocketAddr, start_token: usize, max_connections: usize, params: RequestParams) -> TcpServer {
+    pub fn new(addr: SocketAddr, max_connections: usize, params: RequestParams) -> TcpServer {
         let listener = Self::bind_tcp(addr);
-        let requests = Slab::new_starting_at(Token(start_token), max_connections);
         let factory = Box::new(TcpRequestFactory);
         TcpServer {
             server_socket: listener,
             pending: HashMap::<Token, TcpStream>::new(),
             accepted: HashMap::<Token, TcpStream>::new(),
-            base: ServerBase::new(requests, factory, params, Self::TCP_SERVER_TOKEN),
+            base: ServerBase::new(factory, params, Self::TCP_SERVER_TOKEN),
         }
     }
 
@@ -60,26 +59,12 @@ impl TcpServer {
         match self.server_socket.accept() {
             Ok(Some((stream, addr))) => {
                     debug!("Accepted tcp request from {:?}. Now pending...", addr);
-                    //request gets created with server token, and then updated with the slab token
-                    let req = self.base.build_request(ctx.token, Vec::<u8>::new().as_slice());
-                    match self.base.requests.insert_with(|_| req) {
-                        Some(token) => {
-                            self.update_token(ctx.token, token);
-                            self.base.register(ctx.event_loop, &stream, EventSet::readable(), token, false);
-                            self.pending.insert(token, stream);
-                        },
-                        None => error!("Failed to insert request {:?}", ctx.token)
-                    }
+                    let token = self.base.next_token();                    
+                    self.base.register(ctx.event_loop, &stream, EventSet::readable(), token, false);    
+                    self.pending.insert(token, stream);
             }
             Ok(None) => debug!("Socket would block. Waiting..."),
             Err(err) => error!("Failed to accept tcp connection {}", err),
-        }
-    }
-
-    fn update_token(&mut self, server_token: Token, client_token: Token) {
-        match self.base.requests.get_mut(server_token) {
-            Some(req) => req.get_mut().token = client_token,
-            None => error!("No request waiting for updated token")
         }
     }
 
@@ -87,14 +72,12 @@ impl TcpServer {
         debug_assert!(ctx.events.is_readable());
         match self.pending.remove(&ctx.token) {
             Some(mut stream) => {
-                Self::receive_tcp(&mut stream);
+                let bytes = Self::receive_tcp(&mut stream);
                 self.accepted.insert(ctx.token, stream);
-                debug!("tcp accepted {:?}", ctx.token);
-                match self.base.requests.get_mut(ctx.token) {
-                    //TODO piplines
-                    Some(request) => request.ready(ctx),
-                    None => error!("Request {:?} not found", ctx.token),
-                }
+                let mut request = RawRequest::new(ctx.token, bytes);
+                //TODO: if response, send all...
+                self.base.process(&mut request, ctx);
+                debug!("tcp accepted {:?}", ctx.token);               
             }
             None => error!("{:?} was not pending", ctx.token),
         }
@@ -113,6 +96,12 @@ impl TcpServer {
         //tcp has 2-byte lenth prefix
         return buf.split_off(2);
     }
+
+       pub fn owns(&self, token: Token) -> bool {
+        //todo: self.pipeline.owns(forward stage)
+        self.pending.contains_key(&token) || self.base.owns(token)
+    }
+
 
     fn send_all(&mut self, ctx: &mut RequestCtx) {
         debug!("There are {} responses to send", self.base.responses.len());
