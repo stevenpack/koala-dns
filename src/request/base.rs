@@ -38,19 +38,19 @@ pub trait ForwardedRequest {
 
     fn ready(&mut self, ctx: &mut RequestCtx) -> Option<Response> {
         debug!("State {:?} {:?} {:?}", self.get().state, ctx.token, ctx.events);
-        // todo: authorative? cached? forward?
-        let opt_response = None;
         match self.get().state {
             ForwardedRequestState::New => self.accept(ctx),
             ForwardedRequestState::Accepted => self.forward(ctx),
-            ForwardedRequestState::Forwarded => opt_response = self.receive(ctx),
-            _ => debug!("Nothing to do for this state {:?}", self.get().state),
+            ForwardedRequestState::Forwarded => self.receive(ctx),
+            _ => {
+                debug!("Nothing to do for this state {:?}", self.get().state);
+                return None;
+            },
         }
-        opt_response
     }
    
-    fn accept(&mut self, ctx: &mut RequestCtx);
-    fn forward(&mut self, ctx: &mut RequestCtx);
+    fn accept(&mut self, ctx: &mut RequestCtx) -> Option<Response>;
+    fn forward(&mut self, ctx: &mut RequestCtx) -> Option<Response>;
     fn receive(&mut self, ctx: &mut RequestCtx) -> Option<Response>;
 }
 
@@ -75,7 +75,7 @@ impl Response {
 pub enum ForwardedRequestState {
     New,
     Accepted,
-    Parsed,
+    //Parsed,
     Forwarded,
     ResponseReceived,
     Error,
@@ -124,7 +124,7 @@ impl ForwardedRequestBase {
     }
 
     pub fn on_timeout(&mut self, token: Token) -> Response {
-        self.error_with(format!("{:?} timed out", token));
+        self.error_with(format!("{:?} timed out", token))
     }
 
     pub fn set_timeout(&mut self, ctx: &mut RequestCtx) {
@@ -155,29 +155,32 @@ impl ForwardedRequestBase {
         bytes.truncate(count);        
         debug!("buffered {:?} bytes for response", count);
         //TODO: parse here, or on adding to cache? As that's what it's for...
-        Response::new(self.token, bytes, DnsMessage::parse(&bytes))
+        let msg = DnsMessage::parse(&bytes);
+        Response::new(self.token, bytes, msg)
     }
 
     pub fn error_with(&mut self, err_msg: String) -> Response {
         self.set_state(ForwardedRequestState::Error);
         debug!("{}", err_msg);
         let req = DnsMessage::parse(&self.query_buf);
-        let reply = DnsHeader::new_error(req.header, 2);
-        let bytes = reply.to_bytes();
-        Response::new(self.token, bytes, reply)
+        let header = DnsHeader::new_error(req.header, 2);
+        let msg = DnsMessage::new_error(header);
+        let bytes = msg.to_bytes();
+        Response::new(self.token, bytes, msg)
     }
 
-    pub fn has_reply(&self) -> bool {
-        return self.response_buf.is_some() || self.response.is_some();
-    }
+    // pub fn has_reply(&self) -> bool {
+    //     return self.response_buf.is_some() || self.response.is_some();
+    // }
 
-    pub fn accept(&mut self, ctx: &mut RequestCtx, sock: &Evented) {
+    pub fn accept(&mut self, ctx: &mut RequestCtx, sock: &Evented) -> Option<Response> {
         debug_assert!(ctx.events.is_readable());
         self.set_state(ForwardedRequestState::Accepted);
         //debug!("{:?}", DnsMessage::parse(&self.query_buf));
         //todo: if need to forward...
         self.register_upstream(ctx, EventSet::writable(), sock);
         debug!("Accepted and registered upstream");
+        None
     }
 
     pub fn on_receive(&mut self, ctx: &mut RequestCtx, count: usize, buf: &[u8]) -> Option<Response> {
@@ -185,26 +188,32 @@ impl ForwardedRequestBase {
            //trace!("{:#?}", DnsMessage::parse(buf));           
            self.clear_timeout(ctx);
            self.set_state(ForwardedRequestState::ResponseReceived);
-           return self.buffer_response(&buf, count);
+           return Some(self.buffer_response(&buf, count));
        } 
        warn!("No data received on upstream_socket. {:?}", ctx.token);
        None
     }
-    pub fn on_receive_err(&mut self, ctx: &mut RequestCtx, e: Error) {
-        self.error_with(format!("Receive failed on {:?}. {:?}", ctx.token, e));
+    pub fn on_receive_err(&mut self, ctx: &mut RequestCtx, e: Error) -> Response {
         self.clear_timeout(ctx);
+        self.error_with(format!("Receive failed on {:?}. {:?}", ctx.token, e))        
     }
 
-    pub fn on_forward(&mut self, ctx: &mut RequestCtx, count: usize, sock: &Evented) {
+    pub fn socket_debug(&self, debug_str: String) -> Option<Response> {
+        debug!("{}", debug_str);
+        None
+    }
+
+    pub fn on_forward(&mut self, ctx: &mut RequestCtx, count: usize, sock: &Evented) -> Option<Response> {
         debug!("Sent {:?} bytes", count);
         self.set_state(ForwardedRequestState::Forwarded);
         self.register_upstream(ctx, EventSet::readable(), sock);
         // TODO: No, don't just timeout forwarded requests, time out the whole request,
         // be it cached, authorative or forwarded
         self.set_timeout(ctx);
+        None
     }
 
-    pub fn on_forward_err(&mut self, ctx: &mut RequestCtx, e: Error) {
+    pub fn on_forward_err(&mut self, ctx: &mut RequestCtx, e: Error) -> Response {
         self.error_with(format!("Failed to write to upstream_socket. {:?} {:?}", e, ctx.token))
     }
 }

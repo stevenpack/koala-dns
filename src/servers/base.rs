@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use mio::{EventLoop, EventSet, Token, PollOpt, Evented};
-use mio::util::{Slab};
 use server_mio::{MioServer,RequestCtx};
 use request::base::*;
 use cache::*;
@@ -77,21 +76,22 @@ impl PipelineStage for CacheStage {
         match ctx.cache.read() {
             Ok(cache) => {
                 let query = DnsMessage::parse(&request.bytes);
-                let key = CacheKey::from(&query.question);
-                if let Some(entry) = cache.get(&key) {
-                    //request.state = ForwardedRequestState::ResponseFromCache;
-                    //TODO: need to adjust the TTL down?
-                    //TODO: cache the whole message?
-                    let mut answer_header = query.header.clone();
-                    answer_header.id = query.header.id;
-                    answer_header.qr = true;
-                    answer_header.ancount = entry.answers.len() as u16;
-                    let msg = DnsMessage::new_reply(answer_header, query.question, entry.answers.clone());
-                    debug!("Could answer with {:?} based on key {:?}", msg, entry.key);
-                    let bytes = msg.to_bytes();
-                    return Some(Response::new(ctx.token, msg, bytes));
-                } 
-                return None;
+                if let Some(question) = query.first_question() {
+                    let key = CacheKey::from(&question);
+                    if let Some(entry) = cache.get(&key) {
+                        //request.state = ForwardedRequestState::ResponseFromCache;
+                        //TODO: need to adjust the TTL down?
+                        //TODO: cache the whole message?
+                        let mut answer_header = query.header.clone();
+                        answer_header.id = query.header.id;
+                        answer_header.qr = true;
+                        answer_header.ancount = entry.answers.len() as u16;
+                        let msg = DnsMessage::new_reply(answer_header, query.questions.clone(), entry.answers.clone());
+                        debug!("Could answer with {:?} based on key {:?}", msg, entry.key);
+                        let bytes = msg.to_bytes();
+                        return Some(Response::new(ctx.token, bytes, msg));
+                    } 
+                }
             }
             Err(e) => error!("Couldn't get read lock {:?}", e)
         }
@@ -142,7 +142,7 @@ impl ServerBase {
             //No response, forward upstream
             let mut forward = self.build_forward_request(request.token, &request.bytes);
             debug!("Added {:?} to forwarded", forward.get().token);
-            forward.ready(&mut ctx);
+            let response = forward.ready(&mut ctx);
             self.forwarded.insert(forward.get().token, forward);
         }
         // if request.state == forwarded {
@@ -199,25 +199,26 @@ impl ServerBase {
         self.forwarded.contains_key(&token)
     }
 
-    pub fn request_ready(&mut self, ctx: &mut RequestCtx) {
+        pub fn request_ready(&mut self, ctx: &mut RequestCtx) {
         debug!("Request for {:?} {:?}", ctx.token, ctx.events);
-        let mut queue_response = false;
+        let mut opt_response = None;
         //let mut opt_response = None;
         if let Some(ref mut request) = self.forwarded.get_mut(&ctx.token) {
-            request.ready(ctx);
-            //TODO: Not here
-            queue_response = request.get().has_reply();
+            opt_response = request.ready(ctx);
         }
-        if queue_response {
-            let boxed_req = self.forwarded.remove(&ctx.token).unwrap();
-            let base = boxed_req.get();
-            match base.response_buf {
-                Some(ref x) => {
-                    let msg = DnsMessage::parse(x);       
-                    let response = Response::new(ctx.token, msg, x.clone());
-                    self.queue_response(ctx, response); 
-                }, None =>{}
-            }            
+        if opt_response.is_some() {
+            self.forwarded.remove(&ctx.token);
+            self.queue_response(&ctx, opt_response.unwrap());
+            //TODO: Not here
+            // let boxed_req = self.forwarded.remove(&ctx.token).unwrap();
+            // let base = boxed_req.get();
+            // match opt_response {
+            //     Some(ref x) => {
+            //         let msg = DnsMessage::parse(x);       
+            //         let response = Response::new(ctx.token, x.clone(), msg);
+            //         self.queue_response(ctx, response); 
+            //     }, None =>{}
+            // }            
         }
         // let mut req = self.requests.remove(ctx.token).unwrap();
         // let response = self.pipeline.process(req.get_mut(), ctx).unwrap();

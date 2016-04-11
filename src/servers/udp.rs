@@ -1,7 +1,6 @@
 use std::net::SocketAddr;
 use std::collections::HashMap;
 use mio::{Token, EventSet};
-use mio::util::Slab;
 use mio::udp::UdpSocket;
 use server_mio::{RequestCtx};
 use request::base::*;
@@ -74,10 +73,9 @@ impl UdpServer{
                 self.base.process(&mut req, &mut req_ctx);                    
             }
         }
-        if ctx.events.is_writable() {
-            if self.base.responses.len() > 0 {
-                self.send_all();
-            }
+        
+        if self.base.responses.len() > 0 {
+            self.send_all();
         }
         // We are always listening for new requests. The server socket will be regregistered
         // as writable if there are responses to write

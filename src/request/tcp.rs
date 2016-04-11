@@ -31,14 +31,15 @@ impl ForwardedRequest for TcpRequest {
         &mut self.base
     }
 
-    fn accept(&mut self, ctx: &mut RequestCtx) {
+    fn accept(&mut self, ctx: &mut RequestCtx) -> Option<Response> {
         let addr = self.base.params.upstream_addr;
-        match TcpStream::connect(&addr) {
+        return match TcpStream::connect(&addr) {
             Ok(sock) => {
                 self.base.accept(ctx, &sock);
                 self.upstream_socket = Some(sock);
+                return None;
             },
-            Err(e) => self.base.error_with(format!("Failed to connect to {:?} {:?}", addr, e))
+            Err(e) => Some(self.base.error_with(format!("Failed to connect to {:?} {:?}", addr, e)))
         }
     }
 
@@ -47,36 +48,35 @@ impl ForwardedRequest for TcpRequest {
         const PREFIX_LEN: usize = 2;
         let mut buf = [0; 4096];
         if let Some(ref mut sock) = self.upstream_socket {
-            match sock.read(&mut buf) {
+            return match sock.read(&mut buf) {
                 Ok(count) => {
                     //store the response without the prefix
                     debug!("Received {} bytes", count);
                     if count < PREFIX_LEN {
                         warn!("tcp: Only received length prefix. No content");
-                        return;
+                        return None;
                     }
-                    self.base.on_receive(ctx, count - PREFIX_LEN , &buf[PREFIX_LEN..count]);
+                    self.base.on_receive(ctx, count - PREFIX_LEN , &buf[PREFIX_LEN..count])
                  },
-                Err(e) => self.base.on_receive_err(ctx, e)
+                Err(e) => Some(self.base.on_receive_err(ctx, e))
             }
         }
+        None
     }
 
-    fn forward(&mut self, ctx: &mut RequestCtx) {
+    fn forward(&mut self, ctx: &mut RequestCtx) -> Option<Response> {
         debug_assert!(ctx.events.is_writable());
-        match self.upstream_socket {
-            Some(ref mut sock) => {
-                // prefix with length
-                Self::prefix_with_length(&mut self.base.query_buf);
-                let len = self.base.query_buf.len() as usize;
-                debug!("{:?} bytes to send (inc 2b prefix)", len);
-                match sock.write_all(&mut self.base.query_buf.as_slice()) {
-                    Ok(_) => self.base.on_forward(ctx, len, sock),
-                    Err(e) => self.base.on_forward_err(ctx, e)
-                }
-            },
-            None => error!("tcp forward")
+        if let Some(ref mut sock) = self.upstream_socket {
+            // prefix with length
+            Self::prefix_with_length(&mut self.base.query_buf);
+            let len = self.base.query_buf.len() as usize;
+            debug!("{:?} bytes to send (inc 2b prefix)", len);
+            return match sock.write_all(&mut self.base.query_buf.as_slice()) {
+                Ok(_) => self.base.on_forward(ctx, len, sock),
+                Err(e) => Some(self.base.on_forward_err(ctx, e))
+            }
         }
+        None
     }
 }
 

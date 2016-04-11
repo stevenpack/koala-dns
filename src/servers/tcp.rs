@@ -2,7 +2,6 @@ use std::net::SocketAddr;
 use std::io::Write;
 use server_mio::{RequestCtx};
 use mio::{EventSet, Token, TryRead};
-use mio::util::Slab;
 use mio::tcp::{TcpStream,TcpListener};
 use std::collections::HashMap;
 use request::base::*;

@@ -12,7 +12,7 @@ use std::iter;
 #[derive(Clone)]
 pub struct DnsMessage {
     pub header: DnsHeader,
-    pub question: DnsQuestion,
+    pub questions: Vec<DnsQuestion>,
     pub answers: Vec<DnsAnswer>,
     pub msg_type: DnsMessageType,
 }
@@ -94,10 +94,13 @@ impl IntoBytes for DnsMessage {
 
     fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
         self.header.write(packet);
-        self.question.write(packet);
         let mut pos = 0;
-        if self.msg_type == DnsMessageType::Reply {
 
+        //Replies also have the question
+        for question in self.questions.iter() {
+            pos = question.write(packet);
+        }            
+        if self.msg_type == DnsMessageType::Reply {
             //TODO: apply compression
             //for any DnsNames that exist already, point at them
             //self.answers[1].is_pointer = true;
@@ -232,46 +235,51 @@ impl DnsMessage {
         let header = DnsHeader::parse(&mut packet);
         match header.qr {
             QR_QUERY => {
-                let question = Self::parse_question(&mut packet, header.qdcount);
-                return Self::new_query(header, question);
+                let questions = Self::parse_questions(&mut packet, header.qdcount);
+                return Self::new_query(header, questions);
             }
             QR_RESPONSE => {
-                let question = Self::parse_question(&mut packet, header.qdcount);
+                let questions = Self::parse_questions(&mut packet, header.qdcount);
                 let answers = Self::parse_answers(&mut packet, header.ancount);
-                return Self::new_reply(header, question, answers);
+                return Self::new_reply(header, questions, answers);
             }
         }
     }
 
-    fn new_query(header: DnsHeader, questions: DnsQuestion) -> DnsMessage {
-        return Self::new(header, questions, vec![], DnsMessageType::Query);
+    pub fn new_error(header: DnsHeader) -> DnsMessage {
+        Self::new(header, vec![], vec![], DnsMessageType::Reply)
     }
 
-    pub fn new_reply(header: DnsHeader,
-                 question: DnsQuestion,
-                 answers: Vec<DnsAnswer>)
-                 -> DnsMessage {
-        return Self::new(header, question, answers, DnsMessageType::Reply);
+    fn new_query(header: DnsHeader, questions: Vec<DnsQuestion>) -> DnsMessage {
+        Self::new(header, questions, vec![], DnsMessageType::Query)
+    }
+
+    pub fn new_reply(header: DnsHeader, questions: Vec<DnsQuestion>, answers: Vec<DnsAnswer>) -> DnsMessage {
+        Self::new(header, questions, answers, DnsMessageType::Reply)
     }
 
     fn new(header: DnsHeader,
-           question: DnsQuestion,
+           questions: Vec<DnsQuestion>,
            answers: Vec<DnsAnswer>,
            msg_type: DnsMessageType)
            -> DnsMessage {
         return DnsMessage {
             header: header,
-            question: question,
+            questions: questions,
             answers: answers,
             msg_type: msg_type,
         };
     }
 
-    fn parse_question(packet: &mut DnsPacket, qdcount: u16) -> DnsQuestion {
+    fn parse_questions(packet: &mut DnsPacket, qdcount: u16) -> Vec<DnsQuestion> {
         if qdcount > 1 {
             warn!("Invalid qdcount {:?} only 0 or 1 is valid. Ignoring other quesitons", qdcount);
         }
-        DnsQuestion::parse(packet)
+        let mut questions = Vec::with_capacity(qdcount as usize);
+        for _ in 0..qdcount {
+            questions.push(DnsQuestion::parse(packet));
+        }
+        questions
     }
 
     fn parse_answers(packet: &mut DnsPacket, ancount: u16) -> Vec<DnsAnswer> {
@@ -280,7 +288,11 @@ impl DnsMessage {
             let answer = DnsAnswer::parse(packet);
             answers.push(answer);
         }
-        return answers;
+        answers
+    }
+
+    pub fn first_question(&self) -> Option<&DnsQuestion> {
+        self.questions.get(0)
     }
 
     pub fn first_answer(&self) -> Option<&DnsAnswer> {
