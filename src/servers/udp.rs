@@ -20,7 +20,7 @@ impl UdpServer{
         let factory = Box::new(UdpRequestFactory);
         UdpServer {
             server_socket: server_socket,
-            base: ServerBase::new(factory, params, Self::UDP_SERVER_TOKEN),
+            base: ServerBase::new(factory, params, Self::UDP_SERVER_TOKEN, max_connections),
             accepted: HashMap::<Token, SocketAddr>::new()
         }
     }
@@ -66,28 +66,22 @@ impl UdpServer{
     }
 
     pub fn server_ready(&mut self, ctx: &mut RequestCtx)  {
-        if ctx.events.is_readable() {
-            if let Some((addr, mut req)) = self.accept() {                
-                self.accepted.insert(req.token, addr);
-                let mut req_ctx = RequestCtx::new(ctx.event_loop, EventSet::readable(), req.token, ctx.cache.clone());
-                self.base.process(&mut req, &mut req_ctx);                    
-            }
+        if let Some((addr, mut req)) = self.accept() {                
+            self.accepted.insert(req.token, addr);
+            let mut req_ctx = RequestCtx::new(ctx.event_loop, EventSet::readable(), req.token, ctx.cache.clone());
+            self.base.process(&mut req, &mut req_ctx);                    
         }
         self.send_all();        
-        // We are always listening for new requests. The server socket will be regregistered
-        // as writable if there are responses to write
         self.base.reregister_server(ctx.event_loop, &self.server_socket, EventSet::readable());
     }
 
     pub fn request_ready(&mut self, ctx: &mut RequestCtx) {
-        self.base.request_ready(ctx);
-        if self.base.responses.len() > 0 {
-            self.send_all();
-        }
+        self.base.request_ready(ctx);        
+        self.send_all();
     }
 
     fn send_all(&mut self) {
-        debug!("There are {} responses to send", self.base.responses.len());
+        debug!("There are {} udp responses to send", self.base.responses.len());
         while self.base.responses.len() > 0 {
             self.base.responses.pop().and_then(|reply| Some(self.send(&reply, &self.server_socket)));    
         }        

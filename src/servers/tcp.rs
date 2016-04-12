@@ -25,7 +25,7 @@ impl TcpServer {
             server_socket: listener,
             pending: HashMap::<Token, TcpStream>::new(),
             accepted: HashMap::<Token, TcpStream>::new(),
-            base: ServerBase::new(factory, params, Self::TCP_SERVER_TOKEN),
+            base: ServerBase::new(factory, params, Self::TCP_SERVER_TOKEN, max_connections),
         }
     }
 
@@ -65,15 +65,14 @@ impl TcpServer {
     }
 
     fn accept_pending(&mut self, ctx: &mut RequestCtx) {
-        debug_assert!(ctx.events.is_readable());
         match self.pending.remove(&ctx.token) {
             Some(mut stream) => {
                 let bytes = Self::receive_tcp(&mut stream);
                 self.accepted.insert(ctx.token, stream);
                 let mut request = RawRequest::new(ctx.token, bytes);
-                //TODO: if response, send all...
                 self.base.process(&mut request, ctx);
                 debug!("tcp accepted {:?}", ctx.token);               
+                //TODO: send now? or register as writable. favour fast response or throughput?
                 self.send_all();
             }
             None => error!("{:?} was not pending", ctx.token),
@@ -83,22 +82,19 @@ impl TcpServer {
     pub fn receive_tcp(stream: &mut TcpStream) -> Vec<u8> {
         let mut buf = Vec::<u8>::with_capacity(4096);
         match stream.try_read_buf(&mut buf) {
-            Ok(Some(0)) => info!("Read 0 bytes"),
+            Ok(Some(0)) => warn!("Read 0 bytes"),
             Ok(Some(n)) => buf.truncate(n),
             Ok(None) => info!("None"),
             Err(err) => error!("read failed {}", err),
         }
-
         debug!("Read {} bytes", buf.len());
         //tcp has 2-byte lenth prefix
         return buf.split_off(2);
     }
 
-       pub fn owns(&self, token: Token) -> bool {
-        //todo: self.pipeline.owns(forward stage)
+   pub fn owns(&self, token: Token) -> bool {
         self.pending.contains_key(&token) || self.base.owns(token)
     }
-
 
     fn prefix_with_length(buf: &mut Vec<u8>) {
         //TCP responses are prefixed with a 2-byte length
@@ -112,15 +108,13 @@ impl TcpServer {
         debug!("There are {} tcp responses to send", self.base.responses.len());
         while self.base.responses.len() > 0 {
             if let Some(reply) = self.base.responses.pop() {
-                let tok = reply.token;
-                debug!("Will send {:?}", tok);
-                if let Some(stream) = self.accepted.get_mut(&tok) {
+                debug!("Will send {:?}", reply.token);
+                if let Some(stream) = self.accepted.get_mut(&reply.token) {
                     Self::send(reply, stream)
                 }
             }
         }
     }
-
 
     pub fn send(response: Response, socket: &mut TcpStream) {
         debug!("{:?} bytes in response", response.bytes.len());
