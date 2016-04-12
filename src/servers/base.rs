@@ -108,6 +108,10 @@ impl PipelineStage for ForwardStage {
     }
 }
 
+pub trait Sender {
+    fn send_all(&mut self);
+}
+
 pub struct ServerBase {
     pub request_factory: Box<RequestFactory>,
     pub forwarded: HashMap<Token, Box<ForwardedRequest>>,
@@ -116,7 +120,7 @@ pub struct ServerBase {
     //socket: Box<Evented> //could add socket with box so server registration happens here
     server_token: Token,
     last_request: Token,
-    pipeline: RequestPipeline
+    pipeline: RequestPipeline,
 }
 
 impl ServerBase {
@@ -142,7 +146,10 @@ impl ServerBase {
             //No response, forward upstream
             let mut forward = self.build_forward_request(request.token, &request.bytes);
             debug!("Added {:?} to forwarded", forward.get().token);
-            let response = forward.ready(&mut ctx);
+            if let Some(response) = forward.ready(&mut ctx) {
+                self.queue_response(&ctx, response);
+            }
+
             self.forwarded.insert(forward.get().token, forward);
         }
         // if request.state == forwarded {

@@ -73,10 +73,7 @@ impl UdpServer{
                 self.base.process(&mut req, &mut req_ctx);                    
             }
         }
-        
-        if self.base.responses.len() > 0 {
-            self.send_all();
-        }
+        self.send_all();        
         // We are always listening for new requests. The server socket will be regregistered
         // as writable if there are responses to write
         self.base.reregister_server(ctx.event_loop, &self.server_socket, EventSet::readable());

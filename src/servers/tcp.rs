@@ -48,10 +48,7 @@ impl TcpServer {
             return;
         }
         self.base.request_ready(ctx);
-
-        if self.base.responses.len() > 0 {
-            self.send_all(ctx);
-        }
+        self.send_all();
     }
 
     pub fn accept(&mut self, ctx: &mut RequestCtx) {
@@ -77,6 +74,7 @@ impl TcpServer {
                 //TODO: if response, send all...
                 self.base.process(&mut request, ctx);
                 debug!("tcp accepted {:?}", ctx.token);               
+                self.send_all();
             }
             None => error!("{:?} was not pending", ctx.token),
         }
@@ -102,17 +100,6 @@ impl TcpServer {
     }
 
 
-    fn send_all(&mut self, ctx: &mut RequestCtx) {
-        debug!("There are {} responses to send", self.base.responses.len());
-        if let Some(reply) = self.base.responses.pop() {
-            let tok = reply.token;
-            debug!("Will send {:?}", tok);
-            if let Some(stream) = self.accepted.get_mut(&ctx.token) {
-                Self::send(reply, stream)
-            }
-        }
-    }
-
     fn prefix_with_length(buf: &mut Vec<u8>) {
         //TCP responses are prefixed with a 2-byte length
         let len = buf.len() as u8;
@@ -120,6 +107,20 @@ impl TcpServer {
         buf.insert(0, 0);
         debug!("Added 2b prefix of len: {:?}", len);
     }
+
+     fn send_all(&mut self) {
+        debug!("There are {} tcp responses to send", self.base.responses.len());
+        while self.base.responses.len() > 0 {
+            if let Some(reply) = self.base.responses.pop() {
+                let tok = reply.token;
+                debug!("Will send {:?}", tok);
+                if let Some(stream) = self.accepted.get_mut(&tok) {
+                    Self::send(reply, stream)
+                }
+            }
+        }
+    }
+
 
     pub fn send(response: Response, socket: &mut TcpStream) {
         debug!("{:?} bytes in response", response.bytes.len());
