@@ -93,7 +93,7 @@ impl UdpServer{
         if let Some(client_addr) = self.accepted.get(&response.token) {
             info!("{:?} bytes to send", response.bytes.len());
             match socket.send_to(&mut &response.bytes, &client_addr) {
-                Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, &client_addr),
+                Ok(n) => debug!("{:?} udp bytes sent to client. {:?}", n, &client_addr),
                 Err(e) => error!("Failed to send. {:?} Error was {:?}", &client_addr, e),
             }            
         }

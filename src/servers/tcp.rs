@@ -98,9 +98,9 @@ impl TcpServer {
 
     fn prefix_with_length(buf: &mut Vec<u8>) {
         //TCP responses are prefixed with a 2-byte length
-        let len = buf.len() as u8;
-        buf.insert(0, len);
-        buf.insert(0, 0);
+        let len = buf.len() as u16;
+        buf.insert(0, len as u8);
+        buf.insert(0, len.swap_bytes() as u8);
         debug!("Added 2b prefix of len: {:?}", len);
     }
 
@@ -121,7 +121,7 @@ impl TcpServer {
         let mut prefixed_response = response.bytes;
         Self::prefix_with_length(&mut prefixed_response);
         match socket.write(&mut prefixed_response.as_slice()) {
-            Ok(n) => debug!("{:?} bytes sent to client. {:?}", n, socket.peer_addr()),
+            Ok(n) => debug!("{:?} tcp bytes sent to client. {:?}", n, socket.peer_addr()),
             Err(e) => error!("Failed to send. {:?} Error was {:?}", socket.peer_addr(), e),
         }
     }

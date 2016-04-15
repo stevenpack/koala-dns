@@ -85,9 +85,9 @@ impl TcpRequest {
     //TODO: duplicated
     fn prefix_with_length(buf: &mut Vec<u8>) {
         //TCP responses are prefixed with a 2-byte length
-        let len = buf.len() as u8;
-        buf.insert(0, len);
-        buf.insert(0, 0);
+        let len = buf.len() as u16;
+        buf.insert(0, len as u8);
+        buf.insert(0, len.swap_bytes() as u8);
         debug!("Added 2b prefix of len: {:?}", len);
     }
 }
