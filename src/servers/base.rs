@@ -45,7 +45,9 @@ impl ServerBase {
         let mut forward = self.build_forward_request(request.token, &request.bytes);
         debug!("Added {:?} to forwarded", forward.get().token);
         if let Some(response) = forward.ready(&mut ctx) {
+            //Could get an error straight off...
             self.queue_response(&ctx, response);
+            return;
         }
         self.forwarded.insert(forward.get().token, forward);
     }

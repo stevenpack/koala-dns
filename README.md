@@ -4,11 +4,11 @@ DNS Server in Rust
 ## Learning project
 
 ### TODO
+- Zone files
+- IPv6
+- Thread per core (not possible? https://github.com/carllerche/mio/pull/338), https://github.com/rust-lang-nursery/net2-rs/commit/3a031f462eddd1884bb05667dcea2b65addafe83
 - TODOs
 - [more] Integration tests
-- IPv6
-- Zone files
-- Thread per core
 - Other RFCs (e.g. EDNS/DNSSEC)
 - Check MIO part with carllerche, particularly reading whole packet and
   transition from reading to reading/writing.

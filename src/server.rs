@@ -10,22 +10,24 @@ pub struct Server {
     pub port: u32,
     pub upstream_server: SocketAddr,
     pub timeout: u64,
+    pub master_file: String,
     pub sender: Option<Sender<String>>,
 }
 
 pub trait ServerOps {
-    fn new(port: u32, upstream_server: SocketAddr, timeout: u64) -> Server;
+    fn new(port: u32, upstream_server: SocketAddr, timeout: u64, master_file: String) -> Server;
     fn start(&mut self);
     fn begin_start(&mut self) -> JoinHandle<()>;
     fn stop(&mut self);
 }
 
 impl ServerOps for Server {
-    fn new(port: u32, upstream_server: SocketAddr, timeout: u64) -> Server {
+    fn new(port: u32, upstream_server: SocketAddr, timeout: u64, master_file: String) -> Server {
         let server = Server {
             port: port,
             upstream_server: upstream_server,
             timeout: timeout,
+            master_file: master_file,
             sender: None,
         };
         return server;

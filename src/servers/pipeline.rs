@@ -2,6 +2,7 @@ use server_mio::{RequestCtx};
 use request::base::*;
 use cache::*;
 use dns::dns_entities::*;
+use authority::*;
 
 pub trait PipelineStage {
     fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response>;
@@ -12,7 +13,10 @@ pub struct RequestPipeline {
 }
 
 struct ParseStage;
-struct AuthorityStage;
+//TODO: MasterFile per thread, or shared? Depends on size. For a resolver with millions of records, shared. For a few, per thread.
+struct AuthorityStage {
+    master: Master
+}
 struct CacheStage;
 struct ForwardStage;
 
@@ -21,7 +25,7 @@ impl RequestPipeline {
         
         let mut stages = Vec::<Box<PipelineStage>>::new();
         stages.push(Box::new(ParseStage));
-        stages.push(Box::new(AuthorityStage));
+        stages.push(Box::new(AuthorityStage::new()));
         stages.push(Box::new(CacheStage));
         stages.push(Box::new(ForwardStage));
         
@@ -56,7 +60,57 @@ impl PipelineStage for ParseStage {
 impl PipelineStage for AuthorityStage {
     #[allow(unused_variables)]
     fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response> {        
-        debug!("No Master File parsing yet, so no authoritative records");
+        debug!("Checking master file...");
+        self.get_authoritive(request)
+    }
+}
+
+impl AuthorityStage {
+
+    fn new() -> AuthorityStage {
+        let mut master_file = MasterFile::new(String::from("/tmp/some_master_file.txt"));
+        let master = master_file.create();
+        AuthorityStage {
+            master: master
+        }
+    }
+
+    fn get_authoritive(&self, request: &RawRequest) -> Option<Response> {
+        
+        //TODO: Hack, the message shoud already be parsed and ready to use
+        let query_msg = DnsMessage::parse(&request.bytes);
+        let query = query_msg.first_question().unwrap();
+        let key = RecordKey {
+            name: query.qname.to_string(),
+            typex: query.qtype,
+            class: query.qclass
+
+        };
+        if let Some(record) = self.master.get(&key) {
+            debug!("AUTHORITIVE ANSWER!!! {:?}", record);
+            let mut answer_header = query_msg.header.clone();
+            answer_header.id = query_msg.header.id;
+            answer_header.qr = true;
+            answer_header.ancount = 1;
+
+            let mut answers = Vec::<DnsAnswer>::new();
+            let answer = DnsAnswer {
+                name: query.qname.clone(),
+                aclass: record.class,
+                atype: record.typex,
+                ttl: record.ttl,
+                rdlength: 4,
+                rdata: vec![10, 10, 10, 10]
+            };
+            answers.push(answer);
+
+            let msg = DnsMessage::new_reply(answer_header, query_msg.questions.clone(), answers);
+            return Some(Response {
+                token: request.token,
+                bytes: msg.to_bytes(),
+                msg: msg
+            });
+        }
         None
     }
 }

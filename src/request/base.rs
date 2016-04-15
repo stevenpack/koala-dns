@@ -5,12 +5,6 @@ use server_mio::RequestCtx;
 use dns::dns_entities::*;
 
 
-//Request
- // Token, State, QueryBuf, Query
-//ForwardedRequest
- // Token, QueryBuf,Params,TimeoutHandle
-//Response
-// Token, Response, ResponseBuf
 pub struct RawRequest {
     pub token: Token,
     pub bytes: Vec<u8>,
@@ -23,6 +17,22 @@ impl RawRequest {
             token: token,
             bytes: bytes,
             query: None
+        }
+    }
+}
+
+pub struct Response {
+    pub token: Token,
+    pub bytes: Vec<u8>, //answer without the length prefix
+    pub msg: DnsMessage,
+}
+
+impl Response {
+    pub fn new(token: Token, bytes: Vec<u8>, msg: DnsMessage) -> Response {
+        Response {
+            token: token,
+            bytes: bytes,
+            msg: msg
         }
     }
 }
@@ -54,41 +64,23 @@ pub trait ForwardedRequest {
     fn receive(&mut self, ctx: &mut RequestCtx) -> Option<Response>;
 }
 
-pub struct Response {
-    pub token: Token,
-    pub bytes: Vec<u8>, //answer without the length prefix
-    pub msg: DnsMessage,
-}
 
-impl Response {
-    pub fn new(token: Token, bytes: Vec<u8>, msg: DnsMessage) -> Response {
-        Response {
-            token: token,
-            bytes: bytes,
-            msg: msg
-        }
-    }
-}
 
 #[derive(Debug)]
 #[derive(PartialEq)]
 pub enum ForwardedRequestState {
     New,
     Accepted,
-    //Parsed,
     Forwarded,
     ResponseReceived,
     Error,
 }
 
-//RequestMixin
 pub struct ForwardedRequestBase {
     pub token: Token,
     pub state: ForwardedRequestState,
     pub query_buf: Vec<u8>, //query without the length prefix
     pub query: Option<DnsMessage>,
-    // pub response_buf: Option<Vec<u8>>, //answer without the length prefix
-    // pub response: Option<DnsMessage>,
     pub timeout_handle: Option<Timeout>,
     pub params: RequestParams,
 }
@@ -107,8 +99,6 @@ impl ForwardedRequestBase {
             state: ForwardedRequestState::New,
             query: None,
             query_buf: query_buf,
-            // response_buf: None,
-            // response: None,
             timeout_handle: None,
             params: params,
         };
@@ -169,15 +159,9 @@ impl ForwardedRequestBase {
         Response::new(self.token, bytes, msg)
     }
 
-    // pub fn has_reply(&self) -> bool {
-    //     return self.response_buf.is_some() || self.response.is_some();
-    // }
-
     pub fn accept(&mut self, ctx: &mut RequestCtx, sock: &Evented) -> Option<Response> {
         debug_assert!(ctx.events.is_readable());
         self.set_state(ForwardedRequestState::Accepted);
-        //debug!("{:?}", DnsMessage::parse(&self.query_buf));
-        //todo: if need to forward...
         self.register_upstream(ctx, EventSet::writable(), sock);
         debug!("Accepted and registered upstream");
         None
@@ -185,7 +169,6 @@ impl ForwardedRequestBase {
 
     pub fn on_receive(&mut self, ctx: &mut RequestCtx, count: usize, buf: &[u8]) -> Option<Response> {
        if count > 0 {
-           //trace!("{:#?}", DnsMessage::parse(buf));           
            self.clear_timeout(ctx);
            self.set_state(ForwardedRequestState::ResponseReceived);
            return Some(self.buffer_response(&buf, count));

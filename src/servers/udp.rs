@@ -83,7 +83,9 @@ impl UdpServer{
     fn send_all(&mut self) {
         debug!("There are {} udp responses to send", self.base.responses.len());
         while self.base.responses.len() > 0 {
-            self.base.responses.pop().and_then(|reply| Some(self.send(&reply, &self.server_socket)));    
+            if let Some(response) = self.base.responses.pop() {
+                self.send(&response, &self.server_socket);    
+            }
         }        
     }
 

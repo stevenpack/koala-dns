@@ -17,6 +17,8 @@ mod request;
 mod buf;
 mod servers;
 mod cache;
+mod authority;
+
 use server::ServerOps;
 use std::env;
 use log::{LogRecord, LogLevelFilter};
@@ -38,6 +40,6 @@ fn main() {
 	//env_logger::init().unwrap_or_else(|err| println!("Failed to initialize logger. {:?}", err));
 
     let config = command_line::parse_args();
-    let mut server = server::Server::new(config.port, config.server, config.timeout);
+    let mut server = server::Server::new(config.port, config.server, config.timeout, config.master_file);
     server.start();
 }

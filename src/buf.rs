@@ -119,7 +119,6 @@ pub trait BufWrite : BufRead {
         return true;
     }
 
-
     fn write_bytes(&mut self, bytes: &[u8]) -> bool {
         if self.pos() + bytes.len() > self.len() {
             return false;
@@ -130,5 +129,3 @@ pub trait BufWrite : BufRead {
         true
     }
 }
-
-
