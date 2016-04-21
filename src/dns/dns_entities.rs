@@ -1,10 +1,15 @@
 use dns::bit_cursor::BitCursor;
 use dns::dns_packet::DnsPacket;
 use dns::mut_dns_packet::MutDnsPacket;
-use std::string::FromUtf8Error;
 use buf::*;
+use std::iter;
+
+//note: qdcount doesn't really make sense and most dns servers don't respect it. How do you
+//correlate the multiple answers to multiple questions? what do the flags apply to?
+//TODO: return Result<T,DnsParseError> for parsing
 
 #[derive(Debug)]
+#[derive(Clone)]
 pub struct DnsMessage {
     pub header: DnsHeader,
     pub questions: Vec<DnsQuestion>,
@@ -13,12 +18,16 @@ pub struct DnsMessage {
 }
 
 #[derive(Debug)]
+#[derive(Clone)]
+#[derive(Eq)]
+#[derive(PartialEq)]
 pub enum DnsMessageType {
     Query,
     Reply,
 }
 
 #[derive(Debug)]
+#[derive(Clone)]
 pub struct DnsHeader {
     pub id: u16,
     pub qr: bool,
@@ -36,8 +45,12 @@ pub struct DnsHeader {
 }
 
 #[derive(Debug)]
+#[derive(Clone)]
+#[derive(Eq)]
+#[derive(PartialEq)]
+#[derive(PartialOrd)]
 pub struct DnsAnswer {
-    pub name: String,
+    pub name: DnsName,
     pub atype: u16,
     pub aclass: u16,
     pub ttl: u32,
@@ -46,13 +59,25 @@ pub struct DnsAnswer {
 }
 
 #[derive(Debug)]
+#[derive(Clone)]
 pub struct DnsQuestion {
-    pub qname: String,
+    pub qname: DnsName,
     pub qtype: u16,
     pub qclass: u16,
 }
 
-pub struct DnsName;
+#[derive(Debug)]
+#[derive(Clone)]
+#[derive(Eq)]
+#[derive(PartialEq)]
+#[derive(PartialOrd)]
+pub struct DnsName {
+    labels: Vec<String>,
+    // pos: usize, //offset of this name in the buffer for compression
+    // is_pointer: bool,
+    // pointer: usize
+}
+
 
 pub const QR_QUERY: bool = false;
 pub const QR_RESPONSE: bool = true;
@@ -64,6 +89,30 @@ pub const QR_RESPONSE: bool = true;
 //     IQuery=1,
 //     Status=2
 // }
+
+impl IntoBytes for DnsMessage {
+
+    fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
+        self.header.write(packet);
+        let mut pos = 0;
+
+        //Replies also have the question
+        for question in self.questions.iter() {
+            pos = question.write(packet);
+        }            
+        if self.msg_type == DnsMessageType::Reply {
+            //TODO: apply compression
+            //for any DnsNames that exist already, point at them
+            //self.answers[1].is_pointer = true;
+            //self.answers[1].pointer = self.answers[0].pos;
+
+            for answer in self.answers.iter() {
+                pos = answer.write(packet);
+            }    
+        }        
+        pos
+    }
+}
 
 impl DnsHeader {
     pub fn new_error(request_header: DnsHeader, rcode: u8) -> DnsHeader {
@@ -85,33 +134,7 @@ impl DnsHeader {
         return header;
     }
 
-    // todo: trait?
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut buf = vec![0; 96];
-        let mut bytes = buf.as_mut_slice();
-        let mut packet = MutDnsPacket::new(bytes);
-        packet.write_u16(self.id);
-        match packet.next_u16() {
-            Some(val) => {
-                let mut bit_cursor = BitCursor::new_with(val);
-                bit_cursor.write_bool(true); //qr
-                bit_cursor.write_u4(0); //opcode
-                bit_cursor.write_bool(false);
-                bit_cursor.write_bool(false);
-                bit_cursor.write_bool(true);
-                bit_cursor.write_bool(true);
-                bit_cursor.write(3, 0); //z
-                bit_cursor.write_u4(self.rcode); //rcode
-                bit_cursor.seek(0);
-                packet.seek(2);
-                packet.write_u16(bit_cursor.next_u16());
-            }
-            None => {}
-        }
-        let mut vec = Vec::from(packet.buf());
-        vec.truncate(12); //12 bytes in the header
-        return vec;
-    }
+   
 
     fn parse(packet: &mut DnsPacket) -> DnsHeader {
         // todo: see bitflags macro
@@ -174,13 +197,40 @@ impl DnsHeader {
             ancount: ancount,
             nscount: nscount,
             arcount: arcount,
-        };
+        };        
         return header;
     }
 }
 
+impl IntoBytes for DnsHeader {
+
+    fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
+        packet.write_u16(self.id); //1st word of header
+        if let Some(val) = packet.next_u16() {
+            let mut bit_cursor = BitCursor::new_with(val);
+            bit_cursor.write_bool(self.qr); //qr
+            bit_cursor.write_u4(self.opcode); //opcode
+            bit_cursor.write_bool(self.aa); //aa
+            bit_cursor.write_bool(self.tc); //tc
+            bit_cursor.write_bool(self.rd); //rd
+            bit_cursor.write_bool(self.ra); //ra
+            bit_cursor.write_u4(self.z); //z
+            bit_cursor.write_u4(self.rcode); //rcode
+            bit_cursor.seek(0);
+            packet.seek(2);
+            packet.write_u16(bit_cursor.next_u16()); //2nd word of header
+            packet.write_u16(self.qdcount); //qdcount
+            packet.write_u16(self.ancount); //ancount
+            packet.write_u16(self.nscount); //nscount
+            packet.write_u16(self.arcount); //arcount
+        }
+        debug!("{:?} bytes in header", packet.pos());        
+        packet.pos()
+    }
+}
+
 impl DnsMessage {
-    pub fn parse(buf: &[u8]) -> DnsMessage {
+    pub fn parse(buf: &Vec<u8>) -> DnsMessage {
         let mut packet = DnsPacket::new(buf);
         let header = DnsHeader::parse(&mut packet);
         match header.qr {
@@ -196,15 +246,16 @@ impl DnsMessage {
         }
     }
 
-    fn new_query(header: DnsHeader, questions: Vec<DnsQuestion>) -> DnsMessage {
-        return Self::new(header, questions, vec![], DnsMessageType::Query);
+    pub fn new_error(header: DnsHeader) -> DnsMessage {
+        Self::new(header, vec![], vec![], DnsMessageType::Reply)
     }
 
-    fn new_reply(header: DnsHeader,
-                 questions: Vec<DnsQuestion>,
-                 answers: Vec<DnsAnswer>)
-                 -> DnsMessage {
-        return Self::new(header, questions, answers, DnsMessageType::Reply);
+    fn new_query(header: DnsHeader, questions: Vec<DnsQuestion>) -> DnsMessage {
+        Self::new(header, questions, vec![], DnsMessageType::Query)
+    }
+
+    pub fn new_reply(header: DnsHeader, questions: Vec<DnsQuestion>, answers: Vec<DnsAnswer>) -> DnsMessage {
+        Self::new(header, questions, answers, DnsMessageType::Reply)
     }
 
     fn new(header: DnsHeader,
@@ -221,12 +272,14 @@ impl DnsMessage {
     }
 
     fn parse_questions(packet: &mut DnsPacket, qdcount: u16) -> Vec<DnsQuestion> {
-        let mut questions = Vec::<DnsQuestion>::with_capacity(qdcount as usize);
-        for _ in 0..qdcount {
-            let question = DnsQuestion::parse(packet);
-            questions.push(question);
+        if qdcount > 1 {
+            warn!("Invalid qdcount {:?} only 0 or 1 is valid. Ignoring other quesitons", qdcount);
         }
-        return questions;
+        let mut questions = Vec::with_capacity(qdcount as usize);
+        for _ in 0..qdcount {
+            questions.push(DnsQuestion::parse(packet));
+        }
+        questions
     }
 
     fn parse_answers(packet: &mut DnsPacket, ancount: u16) -> Vec<DnsAnswer> {
@@ -235,12 +288,20 @@ impl DnsMessage {
             let answer = DnsAnswer::parse(packet);
             answers.push(answer);
         }
-        return answers;
+        answers
+    }
+
+    pub fn first_question(&self) -> Option<&DnsQuestion> {
+        self.questions.get(0)
+    }
+
+    pub fn first_answer(&self) -> Option<&DnsAnswer> {
+        self.answers.get(0)
     }
 }
 
 impl DnsAnswer {
-    fn new(name: String,
+    pub fn new(name: DnsName,
            atype: u16,
            aclass: u16,
            ttl: u32,
@@ -257,6 +318,8 @@ impl DnsAnswer {
         };
     }
 
+   
+
     fn parse(packet: &mut DnsPacket) -> DnsAnswer {
         let name = DnsName::parse(packet);
         let atype = packet.next_u16().unwrap_or_default();
@@ -268,8 +331,33 @@ impl DnsAnswer {
     }
 }
 
+impl IntoBytes for DnsAnswer {
+
+    fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
+        self.name.write(packet);
+        packet.write_u16(self.atype);
+        packet.write_u16(self.aclass);
+        packet.write_u32(self.ttl);
+        packet.write_u16(self.rdlength);
+        packet.write_bytes(&self.rdata.clone());
+        debug!("{:?} bytes in answer", packet.pos());        
+        packet.pos()
+    }
+}
+
+impl IntoBytes for DnsQuestion {
+
+    fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
+        self.qname.write(packet);
+        packet.write_u16(self.qtype);
+        packet.write_u16(self.qclass);
+        debug!("{:?} bytes in question", packet.pos());        
+        packet.pos()
+    }
+}
+
 impl DnsQuestion {
-    fn new(qname: String, qtype: u16, qclass: u16) -> DnsQuestion {
+    fn new(qname: DnsName, qtype: u16, qclass: u16) -> DnsQuestion {
         return DnsQuestion {
             qname: qname,
             qtype: qtype,
@@ -286,18 +374,29 @@ impl DnsQuestion {
     }
 }
 
+
+
 impl DnsName {
+
+    fn from(labels: Vec<String>) -> DnsName {
+        DnsName {
+            labels: labels
+        }
+    }
+
+    pub fn to_string(&self) -> String {
+        self.labels.join(".")
+    }
+
     ///A series of labels separatd by dots
     // labels may be actual labels, or pointers to previous instances of labels
-    fn parse(packet: &mut DnsPacket) -> String {
+    fn parse(packet: &mut DnsPacket) -> DnsName {
         let byte = packet.peek_u8().unwrap_or_default();
         if Self::is_pointer(byte) {
-            let name = Self::parse_pointer(packet);
-            return name;
-        } else {
-            let labels = Self::parse_labels(packet);
-            return labels.join(".");
-        }
+            return Self::parse_pointer(packet);
+        } 
+        let labels = Self::parse_labels(packet);
+        DnsName::from(labels)        
     }
 
     fn parse_labels(packet: &mut DnsPacket) -> Vec<String> {
@@ -319,14 +418,13 @@ impl DnsName {
     }
 
     ///A length octet followed by that many octets as string characters
-    fn parse_label(packet: &mut DnsPacket, len: usize) -> Result<String, FromUtf8Error> {
+    fn parse_label(packet: &mut DnsPacket, len: usize) -> Result<String, String> {
         let mut label = Vec::<u8>::with_capacity(len as usize);
         for i in 0..len {
             match packet.next_u8() {
                 Some(0) | None => {
-                    warn!("Found terminating byte or end of buffer before len ({}) bytes read",
-                          len);
-                    break;
+                    return Err(format!("Found terminating byte or end of buffer before len ({}) bytes read",
+                          len));
                 }
                 Some(byte) => label.insert(i, byte),
             }
@@ -334,7 +432,7 @@ impl DnsName {
         trace!("label bytes {:?}", label);
         let label_str = String::from_utf8(label);
         trace!("label: {:?}", label_str);
-        return label_str;
+        return label_str.map_err( |err| format!("Label to UTF8 parse failure {:?}", err));
     }
 
     fn is_pointer(byte: u8) -> bool {
@@ -346,7 +444,7 @@ impl DnsName {
         return byte & 0b0011_1111_1111_1111;
     }
 
-    fn parse_pointer(packet: &mut DnsPacket) -> String {
+    fn parse_pointer(packet: &mut DnsPacket) -> DnsName {
         let offset = Self::parse_offset(packet.next_u16().unwrap_or_default());
         let current_pos = packet.pos();
         if packet.seek(offset as usize) {
@@ -355,15 +453,66 @@ impl DnsName {
             return name;
         }
         warn!("Invalid offset {:?}", offset);
-        return String::new();
+        return DnsName::from(Vec::<String>::new());
     }
+}
+
+impl IntoBytes for DnsName {
+
+    fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
+       
+        for label in self.labels.iter() {
+            packet.write_u8(label.len() as u8);
+            let label_bytes = label.clone().into_bytes();            
+            packet.write_bytes(&label_bytes);
+        }
+        //terminate
+        packet.write_u8(0);
+        //TODO compression (we do it in parsing)
+        packet.pos()
+    }
+}
+
+pub trait IntoBytes {
+    fn to_bytes(&self) -> Vec<u8> {
+        //a zero'd buffer so the len() checks see enough room
+        let mut buf = iter::repeat(0).take(4096).collect::<Vec<_>>();
+        let byte_count;
+        {
+            let mut packet = MutDnsPacket::new(&mut buf);
+            byte_count = self.write(&mut packet);
+            debug!("{:?} bytes from to_bytes()", byte_count);
+        }
+        buf.truncate(byte_count);
+        buf
+    }
+    fn write(&self, mut packet: &mut MutDnsPacket) -> usize;
 }
 
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use buf::*;
     use test::Bencher;
+
+    #[test]
+    fn to_bytes() {
+       let msg = DnsMessage::parse(&test_query_buf());
+       println!("bytes: {:?}", msg.to_bytes());
+    }
+
+    #[test]
+    fn round_trip() {
+        let mut query = test_query_buf();
+        let msg = DnsMessage::parse(&query);
+        let mut query_out = msg.header.to_bytes();
+        query.split_off(12);
+        query_out.split_off(12);
+        //compare the headers
+        assert_eq!(query, query_out);
+        
+    }
 
     fn test_query_buf() -> Vec<u8> {
         //
@@ -374,6 +523,7 @@ mod tests {
         return vec![8, 113, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99, 111,
                     109, 0, 0, 1, 0, 1];
     }
+
 
     fn test_reply_buf() -> Vec<u8> {
         return vec![8, 113, 129, 128, 0, 1, 0, 3, 0, 0, 0, 0, 5, 121, 97, 104, 111, 111, 3, 99,
@@ -390,7 +540,7 @@ mod tests {
         // todo: more flags
         // todo: assert_eq!(0, OpCode::Query);
         assert_eq!(1, reply.header.qdcount);
-        assert_eq!(1, reply.questions.len());
+        //assert_eq!(1, reply.questions.len());
         assert_eq!(3, reply.header.ancount);
         assert_eq!(3, reply.answers.len());
 
@@ -441,8 +591,8 @@ mod tests {
         assert_eq!(2161, q.header.id);
         // todo: assert_eq!(0, OpCode::Query);
         assert_eq!(1, q.header.qdcount);
-        assert_eq!(1, q.questions.len());
-        assert_eq!("yahoo.com", q.questions[0].qname);
+        //assert_eq!(1, q.questions.len());
+        assert_eq!("yahoo.com", q.question.qname);
         // todo: more flags
     }
 
@@ -454,14 +604,12 @@ mod tests {
     #[bench]
     fn parse_query_bench(b: &mut Bencher) {
         let query = test_query_buf();
-        let buf = query.as_slice();
-        b.iter(|| DnsMessage::parse(&buf));
+        b.iter(|| DnsMessage::parse(&query));
     }
 
     #[bench]
     fn parse_reply_bench(b: &mut Bencher) {
         let reply = test_reply_buf();
-        let buf = reply.as_slice();
-        b.iter(|| DnsMessage::parse(&buf));
+        b.iter(|| DnsMessage::parse(&reply));
     }
 }

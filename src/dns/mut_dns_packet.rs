@@ -7,11 +7,12 @@ pub struct MutDnsPacket<'a> {
 }
 
 impl<'a> MutDnsPacket<'a> {
-    pub fn new(buf: &mut [u8]) -> MutDnsPacket {
+    pub fn new(buf: &mut Vec<u8>) -> MutDnsPacket {        
         return MutDnsPacket::new_at(buf, 0);
     }
 
     pub fn new_at(buf: &mut [u8], pos: usize) -> MutDnsPacket {
+        debug!("New MutDnsPacket. buf.len()= {:?}", buf.len());
         return MutDnsPacket {
             buf: buf,
             pos: pos,
@@ -52,7 +53,7 @@ impl<'a> Iterator for MutDnsPacket<'a> {
     ///
     ///Returns two octets in the order they expressed in the spec. I.e. first byte shifted to the left
     ///
-    fn next(&mut self) -> Option<(u16, usize)> {
+    fn next(&mut self) -> Option<Self::Item> {
         return self.next_u16().and_then(|n| return Some((n, self.pos)));
     }
 }
@@ -60,7 +61,7 @@ impl<'a> Iterator for MutDnsPacket<'a> {
 #[cfg(test)]
 mod tests {
 
-    use super::MutDnsPacket;
+    use super::MutDnsPacket;    
     use buf::*;
 
     fn test_buf() -> Vec<u8> {
@@ -73,11 +74,13 @@ mod tests {
                     109, 0, 0, 1, 0, 1];
     }
 
+
+
     #[test]
     fn write_u8() {
-        let mut vec = test_buf();
-        let mut buf = vec.as_mut_slice();
-        let mut packet = MutDnsPacket::new(buf);
+        let mut buf = test_buf();
+        let mut slice = buf.as_mut_slice();
+        let mut packet = MutDnsPacket::new(&mut slice);
         packet.write_u8(7);
         packet.write_u8(8);
         packet.write_u8(9);
@@ -107,7 +110,7 @@ mod tests {
         let mut packet = MutDnsPacket::new(buf);
         assert_eq!(true, packet.write_u16(1));
         assert_eq!(true, packet.write_u16(1));
-        assert_eq!(false, packet.write_u16(1));
+        assert_eq!(false, packet.write_u16(1)); //no room
         println!("{:?}", packet);
     }
 

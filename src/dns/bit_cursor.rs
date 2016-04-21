@@ -44,9 +44,9 @@ impl BitCursor {
         return self.advance(1);
     }
 
-    pub fn write(&mut self, bit_cnt: u32, val: u16) -> bool {
-        return self.write_and_advance(bit_cnt, val);
-    }
+    // pub fn write(&mut self, bit_cnt: u32, val: u16) -> bool {
+    //     return self.write_and_advance(bit_cnt, val);
+    // }
 
     pub fn write_u4(&mut self, val: u8) -> bool {
         return self.write_and_advance(4, val as u16);

@@ -27,11 +27,11 @@ impl<'a> BufRead for DnsPacket<'a> {
 }
 
 impl<'a> DnsPacket<'a> {
-    pub fn new(buf: &[u8]) -> DnsPacket {
+    pub fn new(buf: &Vec<u8>) -> DnsPacket {
         return DnsPacket::new_at(buf, 0);
     }
 
-    pub fn new_at(buf: &[u8], pos: usize) -> DnsPacket {
+    pub fn new_at(buf: &Vec<u8>, pos: usize) -> DnsPacket {
         return DnsPacket {
             buf: buf,
             pos: pos,
@@ -167,7 +167,7 @@ mod tests {
 
     #[test]
     fn empty() {
-        let buf = [];
+        let buf = Vec::<u8>::new();
         let mut p = DnsPacket::new(&buf);
         assert_eq!(None, p.next());
         assert_eq!(None, p.next_u8());

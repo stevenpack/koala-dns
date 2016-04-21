@@ -12,6 +12,7 @@ pub struct Config {
     pub port: u32,
     pub server: SocketAddr,
     pub timeout: u64,
+    pub master_file: String
 }
 
 pub fn parse_args() -> Config {
@@ -25,6 +26,7 @@ pub fn parse_args() -> Config {
                 "timeout",
                 "Upstream response timeout in milliseconds",
                 "1000");
+    opts.optopt("m", "master_file", "Path to the master file", "master.txt");
     opts.optflag("h", "help", "print this help menu");
 
     debug!("Parsing command line options");
@@ -66,11 +68,19 @@ pub fn parse_args() -> Config {
     let timeout_num = timeout.parse::<u64>()
                              .unwrap_or_else(|e| panic!("timeout must be an integer. {}", e));
 
+    //Master file
+    debug!("Parsing master_file...");
+    let mut master_file = String::from("master.txt");
+    if matches.opt_present("m") {
+        master_file = matches.opt_str("m").unwrap();
+    }
+
 
     return Config {
         port: port_num,
         server: upstream_server,
         timeout: timeout_num,
+        master_file: master_file
     };
 }
 
