@@ -92,6 +92,8 @@ impl AuthorityStage {
             answer_header.id = query_msg.header.id;
             answer_header.qr = true;
             answer_header.ancount = 1;
+            answer_header.aa = true; //authoritive
+            //TODO: add them to the authority section? not the answer section? or both
 
             let mut answers = Vec::<DnsAnswer>::new();
             let answer = DnsAnswer {
