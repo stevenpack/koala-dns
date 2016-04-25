@@ -156,7 +156,6 @@ impl ForwardedRequestBase {
         bytes.extend_from_slice(&buf);
         bytes.truncate(count);        
         debug!("buffered {:?} bytes for response", count);
-        //TODO: parse here, or on adding to cache? As that's what it's for...
         let msg = DnsMessage::parse(&bytes);
         Response::with_source(self.token, bytes, msg, Source::Upstream)
     }

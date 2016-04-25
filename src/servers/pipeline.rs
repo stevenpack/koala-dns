@@ -83,6 +83,7 @@ impl AuthorityStage {
         answer_header.qr = true;
         answer_header.ancount = 1;
         answer_header.aa = true; //authoritive
+        answer_header.ra = true;
 
         let mut answers = Vec::<DnsAnswer>::new();
         let answer = DnsAnswer {
@@ -111,6 +112,7 @@ impl PipelineStage for CacheStage {
 
                         if entry.calc_ttl() == 0 {
                             //Expired. Will be removed on next upsert
+                            debug!("expired");
                             return None;
                         }
 
@@ -118,6 +120,7 @@ impl PipelineStage for CacheStage {
                         let mut answer_header = query.header.clone();
                         answer_header.id = query.header.id;
                         answer_header.qr = true;
+                        answer_header.ra = true;
                         answer_header.ancount = entry.answers.len() as u16;
                         let mut answers = entry.answers.clone();
                         Self::adjust_ttl(entry.calc_ttl(), &mut answers);

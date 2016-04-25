@@ -134,6 +134,8 @@ impl CacheEntry {
             let a = answer.clone();
             let key = CacheKey::new(a.name.to_string(), a.atype, a.aclass);
             return Some(CacheEntry::new(key, msg.clone().answers, answer.ttl))
+        } else {
+            warn!("No answer in {:?}", msg);
         }
         None
     }

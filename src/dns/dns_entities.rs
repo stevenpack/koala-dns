@@ -213,12 +213,13 @@ impl DnsMessage {
         let mut packet = DnsPacket::new(buf);
         let header = DnsHeader::parse(&mut packet);
         if header.qr {
-            let questions = Self::parse_questions(&mut packet, header.qdcount);
-            Self::new_query(header, questions)
-        } else {
+            //answer
             let questions = Self::parse_questions(&mut packet, header.qdcount);
             let answers = Self::parse_answers(&mut packet, header.ancount);
             Self::new_reply(header, questions, answers)
+        } else {
+            let questions = Self::parse_questions(&mut packet, header.qdcount);
+            Self::new_query(header, questions)
         }
     }
 
