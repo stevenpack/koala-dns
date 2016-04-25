@@ -29,6 +29,7 @@ impl Cache  {
         self.keys.insert(0, expiry_data);
         self.keys.sort(); //only 1 item should ever be out-of-order. 
         self.map.entry(key).or_insert(val);        
+        debug!("There are {} keys and {} map entries", self.keys.len(), self.map.len());
     }
 
     pub fn get(&self, key: &CacheKey) -> Option<&CacheEntry> {
@@ -52,7 +53,7 @@ impl Cache  {
         self.remove_expired_map(now);
         self.keys.retain(|cache_expiry| cache_expiry.expiry > now);
 
-        debug_assert!(self.map.len() == self.keys.len(), format!("map.len {:?} != keys.len {:?}", self.map.len(), self.keys.len()));        
+        debug_assert!(self.map.len() == self.keys.len(), format!("map.len {:?} != keys.len {:?} map {:?} keys {:?}", self.map.len(), self.keys.len(), self.map, self.keys));        
         key_count - self.keys.len()
     }
 
@@ -131,8 +132,12 @@ impl CacheEntry {
     }
 
     pub fn calc_ttl(&self) -> u32 {
-        debug!("self.expiry {:?} - now {:?} = {:?}", self.expiry, SteadyTime::now(), self.expiry - SteadyTime::now());
-        (self.expiry - SteadyTime::now()).num_seconds() as u32
+        let now = SteadyTime::now();
+        if self.expiry > now {
+            let ttl = (self.expiry - now).num_seconds() as u32;
+            return ttl;
+        }
+        0
     }
 }
 

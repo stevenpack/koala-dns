@@ -59,7 +59,7 @@ pub trait ForwardedRequest {
     fn get_mut(&mut self) -> &mut ForwardedRequestBase;
 
     fn ready(&mut self, ctx: &mut RequestCtx) -> Option<Response> {
-        debug!("State {:?} {:?} {:?}", self.get().state, ctx.token, ctx.events);
+        debug!("ForwardRequest State {:?} {:?} {:?}", self.get().state, ctx.token, ctx.events);
         match self.get().state {
             ForwardedRequestState::New => self.accept(ctx),
             ForwardedRequestState::Accepted => self.forward(ctx),

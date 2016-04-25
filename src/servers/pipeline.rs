@@ -101,13 +101,19 @@ impl AuthorityStage {
 impl PipelineStage for CacheStage {
     #[allow(unused_variables)]
     fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response> {        
-        debug!("Entered cache stage");
+        debug!("Entered cache stage");        
         match ctx.cache.read() {
             Ok(cache) => {
                 let query = DnsMessage::parse(&request.bytes);
                 if let Some(question) = query.first_question() {
                     let key = CacheKey::from(&question);
                     if let Some(entry) = cache.get(&key) {
+
+                        if entry.calc_ttl() <= 0 {
+                            //Expired. Will be removed on next upsert
+                            return None;
+                        }
+
                         //TODO: cache the whole message?
                         let mut answer_header = query.header.clone();
                         answer_header.id = query.header.id;
