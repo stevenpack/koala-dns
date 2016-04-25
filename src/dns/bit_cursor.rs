@@ -62,7 +62,6 @@ impl BitCursor {
         return self.write_and_advance(16, val);
     }
 
-
     fn write_and_advance(&mut self, bit_cnt: u32, val: u16) -> bool {
         let rotated_val = val.rotate_right(bit_cnt + self.pos);
         self.bits = self.bits | rotated_val;

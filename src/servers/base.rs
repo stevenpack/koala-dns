@@ -73,9 +73,12 @@ impl ServerBase {
     }
 
     pub fn queue_response(&mut self, ctx: &RequestCtx, response: Response) {
-        if let Some(cache_entry) = CacheEntry::from(&response.msg) {
-            ctx.cache.write().unwrap().upsert(cache_entry.key.clone(), cache_entry);    
-        }            
+        if response.source == Source::Upstream {
+            debug!("Upstream response. Will cache...");
+            if let Some(cache_entry) = CacheEntry::from(&response.msg) {
+                ctx.cache.write().unwrap().upsert(cache_entry.key.clone(), cache_entry);    
+            }            
+        }
         self.responses.push(response);
         debug!("queued response {:?}", ctx.token);        
     }

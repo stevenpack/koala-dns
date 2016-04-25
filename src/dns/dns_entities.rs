@@ -6,7 +6,8 @@ use std::iter;
 
 //note: qdcount doesn't really make sense and most dns servers don't respect it. How do you
 //correlate the multiple answers to multiple questions? what do the flags apply to?
-//TODO: return Result<T,DnsParseError> for parsing
+//TODO: return Result<T,DnsParseError> for parsing, rather than using unwrap_or_default().
+//      msg is either valid, or it's not
 
 #[derive(Debug)]
 #[derive(Clone)]
@@ -72,23 +73,12 @@ pub struct DnsQuestion {
 #[derive(PartialEq)]
 #[derive(PartialOrd)]
 pub struct DnsName {
-    labels: Vec<String>,
-    // pos: usize, //offset of this name in the buffer for compression
-    // is_pointer: bool,
-    // pointer: usize
+    labels: Vec<String>
 }
 
 
 pub const QR_QUERY: bool = false;
 pub const QR_RESPONSE: bool = true;
-
-// #[derive(PartialEq)]
-// #[derive(Debug)]
-// pub enum OpCode {
-//     Query=0,
-//     IQuery=1,
-//     Status=2
-// }
 
 impl IntoBytes for DnsMessage {
 
@@ -96,16 +86,12 @@ impl IntoBytes for DnsMessage {
         self.header.write(packet);
         let mut pos = 0;
 
-        //Replies also have the question
+        //Replies also have the question in the answer msg
         for question in self.questions.iter() {
             pos = question.write(packet);
         }            
         if self.msg_type == DnsMessageType::Reply {
-            //TODO: apply compression
-            //for any DnsNames that exist already, point at them
-            //self.answers[1].is_pointer = true;
-            //self.answers[1].pointer = self.answers[0].pos;
-
+            //TODO: apply outbound compression
             for answer in self.answers.iter() {
                 pos = answer.write(packet);
             }    
@@ -132,12 +118,9 @@ impl DnsHeader {
             arcount: 0,
         };
         return header;
-    }
-
-   
+    }   
 
     fn parse(packet: &mut DnsPacket) -> DnsHeader {
-        // todo: see bitflags macro
         let mut id: u16 = 0;
         let mut qr: bool = false;
         let mut opcode: u8 = 0;
@@ -273,7 +256,7 @@ impl DnsMessage {
 
     fn parse_questions(packet: &mut DnsPacket, qdcount: u16) -> Vec<DnsQuestion> {
         if qdcount > 1 {
-            warn!("Invalid qdcount {:?} only 0 or 1 is valid. Ignoring other quesitons", qdcount);
+            warn!("Invalid qdcount {:?} only 0 or 1 is valid. Ignoring other questions", qdcount);
         }
         let mut questions = Vec::with_capacity(qdcount as usize);
         for _ in 0..qdcount {
@@ -316,9 +299,7 @@ impl DnsAnswer {
             rdlength: rdlength,
             rdata: rdata,
         };
-    }
-
-   
+    }   
 
     fn parse(packet: &mut DnsPacket) -> DnsAnswer {
         let name = DnsName::parse(packet);
@@ -373,8 +354,6 @@ impl DnsQuestion {
         return question;
     }
 }
-
-
 
 impl DnsName {
 
@@ -468,7 +447,7 @@ impl IntoBytes for DnsName {
         }
         //terminate
         packet.write_u8(0);
-        //TODO compression (we do it in parsing)
+        //TODO: outbound compression (we do it in parsing)
         packet.pos()
     }
 }

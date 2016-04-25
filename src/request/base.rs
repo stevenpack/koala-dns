@@ -4,7 +4,6 @@ use mio::{Token, Timeout, Handler, EventSet, Evented, PollOpt};
 use server_mio::RequestCtx;
 use dns::dns_entities::*;
 
-
 pub struct RawRequest {
     pub token: Token,
     pub bytes: Vec<u8>,
@@ -21,18 +20,31 @@ impl RawRequest {
     }
 }
 
+#[derive(PartialEq)]
+pub enum Source {
+    //System, //such as error
+    Authoritive,
+    Cache,
+    Upstream
+}
+
 pub struct Response {
     pub token: Token,
     pub bytes: Vec<u8>, //answer without the length prefix
     pub msg: DnsMessage,
+    pub source: Source
 }
 
 impl Response {
-    pub fn new(token: Token, bytes: Vec<u8>, msg: DnsMessage) -> Response {
+    // pub fn new(token: Token, bytes: Vec<u8>, msg: DnsMessage) -> Response {
+    //     Self::with_source(token, bytes, msg, Source::System)
+    // }
+     pub fn with_source(token: Token, bytes: Vec<u8>, msg: DnsMessage, source: Source) -> Response {
         Response {
             token: token,
             bytes: bytes,
-            msg: msg
+            msg: msg,
+            source: source
         }
     }
 }
@@ -146,7 +158,7 @@ impl ForwardedRequestBase {
         debug!("buffered {:?} bytes for response", count);
         //TODO: parse here, or on adding to cache? As that's what it's for...
         let msg = DnsMessage::parse(&bytes);
-        Response::new(self.token, bytes, msg)
+        Response::with_source(self.token, bytes, msg, Source::Upstream)
     }
 
     pub fn error_with(&mut self, err_msg: String) -> Response {
@@ -156,7 +168,7 @@ impl ForwardedRequestBase {
         let header = DnsHeader::new_error(req.header, 2);
         let msg = DnsMessage::new_error(header);
         let bytes = msg.to_bytes();
-        Response::new(self.token, bytes, msg)
+        Response::with_source(self.token, bytes, msg, Source::Upstream)
     }
 
     pub fn accept(&mut self, ctx: &mut RequestCtx, sock: &Evented) -> Option<Response> {
@@ -176,6 +188,7 @@ impl ForwardedRequestBase {
        warn!("No data received on upstream_socket. {:?}", ctx.token);
        None
     }
+    
     pub fn on_receive_err(&mut self, ctx: &mut RequestCtx, e: Error) -> Response {
         self.clear_timeout(ctx);
         self.error_with(format!("Receive failed on {:?}. {:?}", ctx.token, e))        

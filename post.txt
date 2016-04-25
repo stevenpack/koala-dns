@@ -1,0 +1,12 @@
+post
+
+code review
+cache impls, redis etc.
+dns review
+  - bitcursor?
+
+ - udp setsockoption reuseaddr and reuseport
+
+inheritance. base, server_base, Record, ARecord...
+
+thread per core / udp issue

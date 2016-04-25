@@ -25,10 +25,9 @@ impl Cache  {
     pub fn upsert(&mut self, key: CacheKey, val: CacheEntry) {
         self.remove_expired();
         let expiry_data = CacheExpiry::new(key.clone(), val.expiry());
-        debug!("cached it! with key {:?}", key);
+        debug!("Cached answer with key {:?}", key);
         self.keys.insert(0, expiry_data);
         self.keys.sort(); //only 1 item should ever be out-of-order. 
-        // TODO Check internal impl. for vec.sort. Could be binary-like search to find appropriate insert point
         self.map.entry(key).or_insert(val);        
     }
 
@@ -101,7 +100,6 @@ impl Ord for CacheKey {
     }
 }
 
-
 #[derive(PartialOrd)]
 #[derive(PartialEq)]
 #[derive(Eq)]
@@ -119,7 +117,7 @@ impl CacheEntry {
             key: key,
             answers: answers,
             ttl: ttl,
-            expiry: SteadyTime::now() + Duration::milliseconds(ttl as i64)
+            expiry: SteadyTime::now() + Duration::seconds(ttl as i64)
         }
     }
 
@@ -130,6 +128,11 @@ impl CacheEntry {
             return Some(CacheEntry::new(key, msg.clone().answers, answer.ttl))
         }
         None
+    }
+
+    pub fn calc_ttl(&self) -> u32 {
+        debug!("self.expiry {:?} - now {:?} = {:?}", self.expiry, SteadyTime::now(), self.expiry - SteadyTime::now());
+        (self.expiry - SteadyTime::now()).num_seconds() as u32
     }
 }
 

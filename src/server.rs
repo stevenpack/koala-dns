@@ -47,7 +47,6 @@ impl ServerOps for Server {
               self.upstream_server);
         let address_str = format!("0.0.0.0:{:?}", self.port);
         let address = address_str.parse().unwrap_or_else(|e| panic!("Couldn't parse address {:?} {:?}", address_str, e));
-        // TODO: new thread, restart if die
         let (tx, run_handle) = MioServer::start(address, self.upstream_server, self.timeout);
         self.sender = tx;
         info!("Joining on run handle");

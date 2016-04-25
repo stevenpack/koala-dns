@@ -20,7 +20,7 @@ pub struct MioServer {
 
 impl Handler for MioServer {
     type Timeout = Token;
-    type Message = String; //todo: make enum
+    type Message = String;
 
     fn ready(&mut self, event_loop: &mut EventLoop<Self>, token: Token, events: EventSet) {
         //TODO: Expensive to clone the cache ref for every request? Can be stored on ServerBase. It's on
@@ -49,7 +49,7 @@ impl Handler for MioServer {
     }
 
     fn notify(&mut self, event_loop: &mut EventLoop<Self>, msg: String) {
-        //TODO: finish
+        //For tests. Could implement SIG handling
         info!("Got a message {}", msg);
         if msg == format!("{}", "Stop!") {
             event_loop.shutdown()

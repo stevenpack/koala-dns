@@ -2,7 +2,6 @@ use server_mio::{RequestCtx};
 use request::base::*;
 use cache::*;
 use dns::dns_entities::*;
-use authority::*;
 
 pub trait PipelineStage {
     fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response>;
@@ -13,10 +12,7 @@ pub struct RequestPipeline {
 }
 
 struct ParseStage;
-//TODO: MasterFile per thread, or shared? Depends on size. For a resolver with millions of records, shared. For a few, per thread.
-struct AuthorityStage {
-    master: Master
-}
+struct AuthorityStage;
 struct CacheStage;
 struct ForwardStage;
 
@@ -25,7 +21,7 @@ impl RequestPipeline {
         
         let mut stages = Vec::<Box<PipelineStage>>::new();
         stages.push(Box::new(ParseStage));
-        stages.push(Box::new(AuthorityStage::new()));
+        stages.push(Box::new(AuthorityStage));
         stages.push(Box::new(CacheStage));
         stages.push(Box::new(ForwardStage));
         
@@ -60,60 +56,45 @@ impl PipelineStage for ParseStage {
 impl PipelineStage for AuthorityStage {
     #[allow(unused_variables)]
     fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response> {        
-        debug!("Checking master file...");
         self.get_authoritive(request)
     }
 }
 
 impl AuthorityStage {
 
-    fn new() -> AuthorityStage {
-        let mut master_file = MasterFile::new(String::from("/tmp/some_master_file.txt"));
-        let master = master_file.create();
-        AuthorityStage {
-            master: master
-        }
-    }
-
     fn get_authoritive(&self, request: &RawRequest) -> Option<Response> {
         
-        //TODO: Hack, the message shoud already be parsed and ready to use
-        let query_msg = DnsMessage::parse(&request.bytes);
-        let query = query_msg.first_question().unwrap();
-        let key = RecordKey {
-            name: query.qname.to_string(),
-            typex: query.qtype,
-            class: query.qclass
-
-        };
-        if let Some(record) = self.master.get(&key) {
-            debug!("AUTHORITIVE ANSWER!!! {:?}", record);
-            let mut answer_header = query_msg.header.clone();
-            answer_header.id = query_msg.header.id;
-            answer_header.qr = true;
-            answer_header.ancount = 1;
-            answer_header.aa = true; //authoritive
-            //TODO: add them to the authority section? not the answer section? or both
-
-            let mut answers = Vec::<DnsAnswer>::new();
-            let answer = DnsAnswer {
-                name: query.qname.clone(),
-                aclass: record.class,
-                atype: record.typex,
-                ttl: record.ttl,
-                rdlength: 4,
-                rdata: vec![10, 10, 10, 10]
-            };
-            answers.push(answer);
-
-            let msg = DnsMessage::new_reply(answer_header, query_msg.questions.clone(), answers);
-            return Some(Response {
-                token: request.token,
-                bytes: msg.to_bytes(),
-                msg: msg
-            });
+        if let Some(ref query) = request.query {
+            if let Some(question) = query.first_question() {
+                debug!("Checking for authoritive answer to {:?}", question.qname);
+                if question.qname.to_string() == "example.org"  {                    
+                    let msg = self.test_answer(&query.header, &question);
+                    debug!("Yes. Will answer with authoritive answer. {:?}", msg);
+                    return Some(Response::with_source(request.token, msg.to_bytes(), msg, Source::Authoritive));
+                }
+            }
         }
         None
+    }
+
+    fn test_answer(&self, query_header: &DnsHeader, question: &DnsQuestion) -> DnsMessage {
+        let mut answer_header = query_header.clone();
+        answer_header.id = query_header.id;
+        answer_header.qr = true;
+        answer_header.ancount = 1;
+        answer_header.aa = true; //authoritive
+
+        let mut answers = Vec::<DnsAnswer>::new();
+        let answer = DnsAnswer {
+            name: question.qname.clone(),
+            aclass: 1, //A
+            atype: 1,  //IN(ternet)
+            ttl: 300,
+            rdlength: 4,
+            rdata: vec![93, 184, 216, 34]
+        };
+        answers.push(answer);
+        DnsMessage::new_reply(answer_header, vec![question.clone()], answers)        
     }
 }
 
@@ -127,15 +108,16 @@ impl PipelineStage for CacheStage {
                 if let Some(question) = query.first_question() {
                     let key = CacheKey::from(&question);
                     if let Some(entry) = cache.get(&key) {
-                        //TODO: need to adjust the TTL down?
                         //TODO: cache the whole message?
                         let mut answer_header = query.header.clone();
                         answer_header.id = query.header.id;
                         answer_header.qr = true;
                         answer_header.ancount = entry.answers.len() as u16;
-                        let msg = DnsMessage::new_reply(answer_header, query.questions.clone(), entry.answers.clone());
+                        let mut answers = entry.answers.clone();
+                        Self::adjust_ttl(entry.calc_ttl(), &mut answers);
+                        let msg = DnsMessage::new_reply(answer_header, query.questions.clone(), answers);
                         debug!("Will answer with {:?} based on key {:?}", msg, entry.key);
-                        return Some(Response::new(ctx.token, msg.to_bytes(), msg));
+                        return Some(Response::with_source(ctx.token, msg.to_bytes(), msg, Source::Cache));
                     } 
                 }
             }
@@ -146,10 +128,19 @@ impl PipelineStage for CacheStage {
     }
 }
 
+impl CacheStage {
+    fn adjust_ttl(ttl: u32, answers: &mut Vec<DnsAnswer>) {
+        for answer in answers {
+            debug!("Adjusting ttl {} -> {}", answer.ttl, ttl);
+            answer.ttl = ttl;
+        }
+    }
+}
+
 impl PipelineStage for ForwardStage {
     #[allow(unused_variables)]
     fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response> {        
-        debug!("Forward does nothing. Create ForwardRequest from RequestRaw...");
+        debug!("No cache or authoritive answer. Create ForwardRequest from RequestRaw...");
         None 
     }
 }

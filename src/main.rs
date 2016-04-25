@@ -17,7 +17,6 @@ mod request;
 mod buf;
 mod servers;
 mod cache;
-mod authority;
 
 use server::ServerOps;
 use std::env;
