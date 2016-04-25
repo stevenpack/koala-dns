@@ -191,10 +191,11 @@ mod test {
     use super::{Cache, CacheEntry, CacheKey};
     use std::thread;
     use std::time::Duration;
-    use dns::dns_entities::{DnsAnswer};
+    use std::str::FromStr;
+    use dns::dns_entities::{DnsAnswer, DnsName};
 
     fn test_cache() -> Cache {
-        let mut cache = Cache::new();
+        let mut cache = Cache::default();
         let key = CacheKey::new(String::from("yahoo.com"), 1, 1);
         let val = CacheEntry::new(key.clone(), test_answers(), 5);
         cache.upsert(key.clone(), val);
@@ -222,25 +223,25 @@ mod test {
     }
 
     fn test_answer_with(domain: String) -> DnsAnswer {
-        DnsAnswer::new(domain, 1, 1, 10, 4, vec![200, 200, 200, 200])
+        DnsAnswer::new(DnsName::from_string(domain), 1, 1, 10, 4, vec![200, 200, 200, 200])
     }
 
     #[test]
     fn upsert() {
         let cache = test_cache();
         let key = test_key();
-        assert_eq!(cache.get(&key).unwrap().answers[0].name, String::from("yahoo.com"));
+        assert_eq!(cache.get(&key).unwrap().answers[0].name, DnsName::from_str("yahoo.com").unwrap());
     }
 
     #[test]
     fn expiry() {
         let mut cache = test_cache();
         let key2 = CacheKey::new(String::from("lycos.com"), 1, 1);
-        let val2 = CacheEntry::new(key2.clone(), test_answers_with(String::from("lycos.com")), 100);
+        let val2 = CacheEntry::new(key2.clone(), test_answers_with(String::from("lycos.com")), 1);
         cache.upsert(key2, val2);
 
         assert_eq!(2, cache.len());
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(1010));
         assert_eq!(1, cache.remove_expired());
         assert_eq!(1, cache.len());
     }

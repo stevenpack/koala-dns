@@ -3,6 +3,7 @@ use dns::dns_packet::DnsPacket;
 use dns::mut_dns_packet::MutDnsPacket;
 use buf::*;
 use std::iter;
+use std::str::FromStr;
 
 //note: qdcount doesn't really make sense and most dns servers don't respect it. How do you
 //correlate the multiple answers to multiple questions? what do the flags apply to?
@@ -348,7 +349,20 @@ impl DnsQuestion {
     }
 }
 
+impl FromStr for DnsName {
+    type Err=String;
+     fn from_str(string: &str) -> Result<Self, Self::Err> {        
+        Ok(Self::from_string(string.to_owned()))
+    }
+}
+
 impl DnsName {
+
+   
+    pub fn from_string(string: String) -> DnsName {
+        let labels = string.split('.').map(|s| s.to_owned()).collect();
+        Self::from(labels)
+    }
 
     fn from(labels: Vec<String>) -> DnsName {
         DnsName {
@@ -516,8 +530,8 @@ mod tests {
         assert_eq!(3, reply.header.ancount);
         assert_eq!(3, reply.answers.len());
 
-        let ref a = reply.answers[0];
-        assert_eq!("yahoo.com", a.name);
+        let a = &reply.answers[0];
+        assert_eq!("yahoo.com", a.name.to_string());
         assert_eq!(10, a.ttl);
         assert_eq!(4, a.rdlength);
         assert_eq!(vec![206, 190, 36, 45], a.rdata);
@@ -564,7 +578,7 @@ mod tests {
         // todo: assert_eq!(0, OpCode::Query);
         assert_eq!(1, q.header.qdcount);
         //assert_eq!(1, q.questions.len());
-        assert_eq!("yahoo.com", q.question.qname);
+        assert_eq!("yahoo.com", q.questions[0].qname.to_string());
         // todo: more flags
     }
 

@@ -138,10 +138,10 @@ mod tests {
     #[test]
     fn mask() {
         let cursor = BitCursor::new_with(12);
-        for i in vec![1, 2, 3, 4] {
-            let mask = cursor.mask(i);
+        for i in &[1, 2, 3, 4] {
+            let mask = cursor.mask(*i);
             println!("{:?} -> {:016b}", i, mask);
-            match i {
+            match *i {
                 1 => assert_eq!(mask, 0b0000_0000_0000_0001),
                 2 => assert_eq!(mask, 0b0000_0000_0000_0011),
                 3 => assert_eq!(mask, 0b0000_0000_0000_0111),
@@ -179,7 +179,7 @@ mod tests {
 
     #[test]
     fn write() {
-        let mut cursor = BitCursor::new();
+        let mut cursor = BitCursor::default();
         println!("Start {:016b}", cursor.next_u16());
         println!("true as u16 {:016b}", true as u16);
         println!("mask 1 bit {:016b}", cursor.mask(1));
