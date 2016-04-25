@@ -31,8 +31,7 @@ impl TcpServer {
 
     pub fn bind_tcp(address: SocketAddr) -> TcpListener {
         info!("Binding TCP to {:?}", address);
-        let server = TcpListener::bind(&address).unwrap();
-        return server;
+        TcpListener::bind(&address).unwrap()
     }
 
     pub fn server_ready(&mut self, ctx: &mut RequestCtx)  {
@@ -89,7 +88,7 @@ impl TcpServer {
         }
         debug!("Read {} bytes", buf.len());
         //tcp has 2-byte lenth prefix
-        return buf.split_off(2);
+        buf.split_off(2)
     }
 
    pub fn owns(&self, token: Token) -> bool {
@@ -106,7 +105,7 @@ impl TcpServer {
 
      fn send_all(&mut self) {
         debug!("There are {} tcp responses to send", self.base.responses.len());
-        while self.base.responses.len() > 0 {
+        while !self.base.responses.is_empty() {
             if let Some(reply) = self.base.responses.pop() {
                 debug!("Will send {:?}", reply.token);
                 if let Some(stream) = self.accepted.get_mut(&reply.token) {
@@ -120,7 +119,7 @@ impl TcpServer {
         debug!("{:?} bytes in response", response.bytes.len());
         let mut prefixed_response = response.bytes;
         Self::prefix_with_length(&mut prefixed_response);
-        match socket.write(&mut prefixed_response.as_slice()) {
+        match socket.write(&prefixed_response.as_slice()) {
             Ok(n) => debug!("{:?} tcp bytes sent to client. {:?}", n, socket.peer_addr()),
             Err(e) => error!("Failed to send. {:?} Error was {:?}", socket.peer_addr(), e),
         }

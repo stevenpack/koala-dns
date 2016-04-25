@@ -31,7 +31,7 @@ impl ServerBase {
             params: params,
             server_token: token,
             last_request: Token(Self::REQUEST_TOKEN_START), //Some number clearly different from the starting token
-            pipeline: RequestPipeline::new(),
+            pipeline: RequestPipeline::default(),
             max_connections: max_connections
         }
     }

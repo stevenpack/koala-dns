@@ -66,7 +66,7 @@ pub trait ForwardedRequest {
             ForwardedRequestState::Forwarded => self.receive(ctx),
             _ => {
                 debug!("Nothing to do for this state {:?}", self.get().state);
-                return None;
+                None
             },
         }
     }
@@ -106,14 +106,14 @@ pub struct RequestParams {
 
 impl ForwardedRequestBase {
     pub fn new(token: Token, query_buf: Vec<u8>, params: RequestParams) -> ForwardedRequestBase {
-        return ForwardedRequestBase {
+        ForwardedRequestBase {
             token: token,
             state: ForwardedRequestState::New,
             query: None,
             query_buf: query_buf,
             timeout_handle: None,
             params: params,
-        };
+        }
     }
 
     pub fn set_state(&mut self, state: ForwardedRequestState) {

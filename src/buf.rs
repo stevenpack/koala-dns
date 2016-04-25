@@ -2,16 +2,19 @@ pub trait DirectAccessBuf {
     fn pos(&self) -> usize;
     fn set_pos(&mut self, pos: usize);
     fn len(&self) -> usize;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     fn seek(&mut self, pos: usize) -> bool {
         if pos > self.len() {
             return false;
         }
         self.set_pos(pos);
-        return true;
+        true
     }
     fn advance(&mut self, count: usize) -> bool {
         let new_pos = self.pos() + count;
-        return self.seek(new_pos);
+        self.seek(new_pos)
     }
     fn reset(&mut self) {
         self.seek(0);
@@ -25,7 +28,7 @@ pub trait BufRead : DirectAccessBuf {
         if self.pos() >= self.len() {
             return None;
         }
-        return Some(self.buf()[self.pos()]);
+        Some(self.buf()[self.pos()])
     }
 
     fn next_bytes(&mut self, bytes: usize) -> Vec<u8> {
@@ -37,16 +40,16 @@ pub trait BufRead : DirectAccessBuf {
                 None => break,
             }
         }
-        return slice;
+        slice
     }
 
     fn next_u8(&mut self) -> Option<u8> {
         match self.peek_u8() {
             Some(byte) => {
                 self.advance(1);
-                return Some(byte);
+                Some(byte)
             }
-            None => return None,
+            None => None,
         }
     }
 
@@ -61,8 +64,7 @@ pub trait BufRead : DirectAccessBuf {
         let byte1 = self.buf()[self.pos()];
         let byte2 = self.buf()[self.pos() + 1];
         self.advance(2);
-
-        return Some(((byte1 as u16) << 8) | byte2 as u16);
+        Some(((byte1 as u16) << 8) | byte2 as u16)
     }
 
     fn next_u32(&mut self) -> Option<u32> {
@@ -76,7 +78,7 @@ pub trait BufRead : DirectAccessBuf {
                   (self.buf()[self.pos() + 2] as u32) << 8 |
                   self.buf()[self.pos() + 3] as u32;
         self.advance(4);
-        return Some(val);
+        Some(val)
     }
 }
 
@@ -90,7 +92,7 @@ pub trait BufWrite : BufRead {
         }
         self.buf()[self.pos()] = byte;
         self.advance(1);
-        return true;
+        true
     }
 
     fn write_u16(&mut self, bytes: u16) -> bool {
@@ -103,7 +105,7 @@ pub trait BufWrite : BufRead {
         self.buf()[pos] = (bytes >> 8) as u8;
         self.buf()[pos + 1] = bytes as u8;
         self.advance(2);
-        return true;
+        true
     }
 
     fn write_u32(&mut self, bytes: u32) -> bool {
@@ -116,7 +118,7 @@ pub trait BufWrite : BufRead {
         self.buf()[pos + 2] = (bytes >> 8) as u8;
         self.buf()[pos + 3] = bytes as u8;
         self.advance(4);
-        return true;
+        true
     }
 
     fn write_bytes(&mut self, bytes: &[u8]) -> bool {
@@ -124,7 +126,7 @@ pub trait BufWrite : BufRead {
             return false;
         }
         for byte in bytes {
-            self.write_u8(byte.clone());
+            self.write_u8(*byte);
         }
         true
     }

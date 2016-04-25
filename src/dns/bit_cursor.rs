@@ -1,22 +1,23 @@
 ///
-///A LeftToRight BitCursor for reading and writing bits
+///A Left-To-Right `BitCursor` for reading and writing bits
 ///
 pub struct BitCursor {
     bits: u16,
     pos: u32,
 }
 
-impl BitCursor {
-    pub fn new() -> BitCursor {
-        return BitCursor { bits: 0, pos: 0 };
+impl Default for BitCursor {
+    fn default() -> Self {
+        BitCursor { bits: 0, pos: 0 }
     }
-
+}
+impl BitCursor {
     #[allow(dead_code)]
     pub fn new_with(bits: u16) -> BitCursor {
-        return BitCursor {
+        BitCursor {
             bits: bits,
             pos: 0,
-        };
+        }
     }
 
     pub fn set(&mut self, bits: u16) {
@@ -25,13 +26,13 @@ impl BitCursor {
     }
 
     pub fn next_bool(&mut self) -> bool {
-        return self.read_and_advance(1) == 1;
+        self.read_and_advance(1) == 1
     }
 
 
 
     pub fn next_u4(&mut self) -> u8 {
-        return self.read_and_advance(4) as u8;
+        self.read_and_advance(4) as u8
     }
 
     pub fn write_bool(&mut self, bit: bool) -> bool {
@@ -41,7 +42,7 @@ impl BitCursor {
         let mut u16_val = bit as u16;
         u16_val = u16_val.rotate_right(1 + self.pos as u32);
         self.bits = self.bits | u16_val;
-        return self.advance(1);
+        self.advance(1)
     }
 
     // pub fn write(&mut self, bit_cnt: u32, val: u16) -> bool {
@@ -49,32 +50,32 @@ impl BitCursor {
     // }
 
     pub fn write_u4(&mut self, val: u8) -> bool {
-        return self.write_and_advance(4, val as u16);
+        self.write_and_advance(4, val as u16)
     }
 
     #[allow(dead_code)]
     pub fn write_u8(&mut self, val: u8) -> bool {
-        return self.write_and_advance(8, val as u16);
+        self.write_and_advance(8, val as u16)
     }
 
     #[allow(dead_code)]
     pub fn write_u16(&mut self, val: u16) -> bool {
-        return self.write_and_advance(16, val);
+        self.write_and_advance(16, val)
     }
 
     fn write_and_advance(&mut self, bit_cnt: u32, val: u16) -> bool {
         let rotated_val = val.rotate_right(bit_cnt + self.pos);
         self.bits = self.bits | rotated_val;
-        return self.advance(bit_cnt);
+        self.advance(bit_cnt)
     }
 
     #[allow(dead_code)]
     pub fn next_u8(&mut self) -> u8 {
-        return self.read_and_advance(8) as u8;
+        self.read_and_advance(8) as u8
     }
 
     pub fn next_u16(&mut self) -> u16 {
-        return self.read_and_advance(16);
+        self.read_and_advance(16)
     }
 
     ///Returns the next bits by shifting (rotating) left to push the bits to the far right
@@ -88,13 +89,13 @@ impl BitCursor {
         trace!("{:016b} - mask", mask);
         trace!("{:?} - mask", result);
         self.advance(bits);
-        return result;
+        result
     }
 
     // rotate the bits to line up with the mask
     fn shift(&mut self, size: u32) -> u16 {
         let count = self.pos + size;
-        return self.bits.rotate_left(count);
+        self.bits.rotate_left(count)
     }
 
     fn advance(&mut self, count: u32) -> bool {
@@ -102,7 +103,7 @@ impl BitCursor {
             return false;
         }
         self.pos += count;
-        return true;
+        true
     }
 
     //
@@ -118,7 +119,7 @@ impl BitCursor {
         for i in 0..bits {
             mask = mask + 2usize.pow(i); //pow requires u32
         }
-        return mask as u16;
+        mask as u16
     }
 
     pub fn seek(&mut self, pos: u32) -> bool {
@@ -126,7 +127,7 @@ impl BitCursor {
             return false;
         }
         self.pos = pos;
-        return true;
+        true
     }
 }
 

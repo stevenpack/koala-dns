@@ -23,14 +23,13 @@ pub trait ServerOps {
 
 impl ServerOps for Server {
     fn new(port: u32, upstream_server: SocketAddr, timeout: u64, master_file: String) -> Server {
-        let server = Server {
+        Server {
             port: port,
             upstream_server: upstream_server,
             timeout: timeout,
             master_file: master_file,
             sender: None,
-        };
-        return server;
+        }        
     }
 
     fn start(&mut self) {
@@ -50,7 +49,7 @@ impl ServerOps for Server {
         let (tx, run_handle) = MioServer::start(address, self.upstream_server, self.timeout);
         self.sender = tx;
         info!("Joining on run handle");
-        return run_handle;
+        run_handle
     }
 
     fn stop(&mut self) {

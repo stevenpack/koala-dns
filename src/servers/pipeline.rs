@@ -16,8 +16,8 @@ struct AuthorityStage;
 struct CacheStage;
 struct ForwardStage;
 
-impl RequestPipeline {
-    pub fn new() -> RequestPipeline {
+impl Default for RequestPipeline {
+    fn default() -> RequestPipeline {
         
         let mut stages = Vec::<Box<PipelineStage>>::new();
         stages.push(Box::new(ParseStage));
@@ -34,7 +34,7 @@ impl RequestPipeline {
 impl PipelineStage for RequestPipeline {
     #[allow(unused_variables)]
     fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response> {
-        for stage in self.stages.iter() {
+        for stage in &self.stages {
             if let Some(response) = stage.process(request, ctx) {
                 return Some(response)
             }
@@ -109,7 +109,7 @@ impl PipelineStage for CacheStage {
                     let key = CacheKey::from(&question);
                     if let Some(entry) = cache.get(&key) {
 
-                        if entry.calc_ttl() <= 0 {
+                        if entry.calc_ttl() == 0 {
                             //Expired. Will be removed on next upsert
                             return None;
                         }

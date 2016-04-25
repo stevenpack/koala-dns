@@ -76,10 +76,6 @@ pub struct DnsName {
     labels: Vec<String>
 }
 
-
-pub const QR_QUERY: bool = false;
-pub const QR_RESPONSE: bool = true;
-
 impl IntoBytes for DnsMessage {
 
     fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
@@ -87,12 +83,12 @@ impl IntoBytes for DnsMessage {
         let mut pos = 0;
 
         //Replies also have the question in the answer msg
-        for question in self.questions.iter() {
+        for question in &self.questions {
             pos = question.write(packet);
         }            
         if self.msg_type == DnsMessageType::Reply {
             //TODO: apply outbound compression
-            for answer in self.answers.iter() {
+            for answer in &self.answers {
                 pos = answer.write(packet);
             }    
         }        
@@ -101,8 +97,9 @@ impl IntoBytes for DnsMessage {
 }
 
 impl DnsHeader {
+    #[allow(similar_names)]
     pub fn new_error(request_header: DnsHeader, rcode: u8) -> DnsHeader {
-        let header = DnsHeader {
+        DnsHeader {
             id: request_header.id,
             qr: true,
             opcode: request_header.opcode,
@@ -116,10 +113,10 @@ impl DnsHeader {
             ancount: 0,
             nscount: 0,
             arcount: 0,
-        };
-        return header;
+        }
     }   
 
+    #[allow(similar_names)]
     fn parse(packet: &mut DnsPacket) -> DnsHeader {
         let mut id: u16 = 0;
         let mut qr: bool = false;
@@ -136,7 +133,7 @@ impl DnsHeader {
         let mut nscount: u16 = 0;
         let mut arcount: u16 = 0;
 
-        let mut cursor = BitCursor::new();
+        let mut cursor = BitCursor::default();
         // iterate over each 16bit word in the packet
         for (word, pos) in packet {
             // read each bit according to the definition
@@ -166,7 +163,7 @@ impl DnsHeader {
             }
         }
 
-        let header = DnsHeader {
+        DnsHeader {
             id: id,
             qr: qr,
             opcode: opcode,
@@ -180,8 +177,7 @@ impl DnsHeader {
             ancount: ancount,
             nscount: nscount,
             arcount: arcount,
-        };        
-        return header;
+        }
     }
 }
 
@@ -213,19 +209,16 @@ impl IntoBytes for DnsHeader {
 }
 
 impl DnsMessage {
-    pub fn parse(buf: &Vec<u8>) -> DnsMessage {
+    pub fn parse(buf: &[u8]) -> DnsMessage {
         let mut packet = DnsPacket::new(buf);
         let header = DnsHeader::parse(&mut packet);
-        match header.qr {
-            QR_QUERY => {
-                let questions = Self::parse_questions(&mut packet, header.qdcount);
-                return Self::new_query(header, questions);
-            }
-            QR_RESPONSE => {
-                let questions = Self::parse_questions(&mut packet, header.qdcount);
-                let answers = Self::parse_answers(&mut packet, header.ancount);
-                return Self::new_reply(header, questions, answers);
-            }
+        if header.qr {
+            let questions = Self::parse_questions(&mut packet, header.qdcount);
+            Self::new_query(header, questions)
+        } else {
+            let questions = Self::parse_questions(&mut packet, header.qdcount);
+            let answers = Self::parse_answers(&mut packet, header.ancount);
+            Self::new_reply(header, questions, answers)
         }
     }
 
@@ -246,12 +239,12 @@ impl DnsMessage {
            answers: Vec<DnsAnswer>,
            msg_type: DnsMessageType)
            -> DnsMessage {
-        return DnsMessage {
+        DnsMessage {
             header: header,
             questions: questions,
             answers: answers,
             msg_type: msg_type,
-        };
+        }
     }
 
     fn parse_questions(packet: &mut DnsPacket, qdcount: u16) -> Vec<DnsQuestion> {
@@ -291,14 +284,14 @@ impl DnsAnswer {
            rdlength: u16,
            rdata: Vec<u8>)
            -> DnsAnswer {
-        return DnsAnswer {
+        DnsAnswer {
             name: name,
             atype: atype,
             aclass: aclass,
             ttl: ttl,
             rdlength: rdlength,
             rdata: rdata,
-        };
+        }
     }   
 
     fn parse(packet: &mut DnsPacket) -> DnsAnswer {
@@ -308,7 +301,7 @@ impl DnsAnswer {
         let ttl = packet.next_u32().unwrap_or_default();
         let rdlength = packet.next_u16().unwrap_or_default();
         let rdata = packet.next_bytes(rdlength as usize);
-        return Self::new(name, atype, aclass, ttl, rdlength, rdata);
+        Self::new(name, atype, aclass, ttl, rdlength, rdata)
     }
 }
 
@@ -339,19 +332,18 @@ impl IntoBytes for DnsQuestion {
 
 impl DnsQuestion {
     fn new(qname: DnsName, qtype: u16, qclass: u16) -> DnsQuestion {
-        return DnsQuestion {
+        DnsQuestion {
             qname: qname,
             qtype: qtype,
             qclass: qclass,
-        };
+        }
     }
 
     fn parse(packet: &mut DnsPacket) -> DnsQuestion {
         let qname = DnsName::parse(packet);
         let qtype = packet.next_u16().unwrap_or_default();
         let qclass = packet.next_u16().unwrap_or_default();
-        let question = DnsQuestion::new(qname, qtype, qclass);
-        return question;
+        DnsQuestion::new(qname, qtype, qclass)
     }
 }
 
@@ -393,7 +385,7 @@ impl DnsName {
                 }
             }
         }
-        return labels;
+        labels
     }
 
     ///A length octet followed by that many octets as string characters
@@ -411,16 +403,16 @@ impl DnsName {
         trace!("label bytes {:?}", label);
         let label_str = String::from_utf8(label);
         trace!("label: {:?}", label_str);
-        return label_str.map_err( |err| format!("Label to UTF8 parse failure {:?}", err));
+        label_str.map_err( |err| format!("Label to UTF8 parse failure {:?}", err))
     }
 
     fn is_pointer(byte: u8) -> bool {
         // DNS message compression 4.1.4
-        return byte & 0b1100_0000 == 0b1100_0000;
+        byte & 0b1100_0000 == 0b1100_0000
     }
 
     fn parse_offset(byte: u16) -> u16 {
-        return byte & 0b0011_1111_1111_1111;
+        byte & 0b0011_1111_1111_1111
     }
 
     fn parse_pointer(packet: &mut DnsPacket) -> DnsName {
@@ -432,7 +424,7 @@ impl DnsName {
             return name;
         }
         warn!("Invalid offset {:?}", offset);
-        return DnsName::from(Vec::<String>::new());
+        DnsName::from(Vec::<String>::new())
     }
 }
 
@@ -440,7 +432,7 @@ impl IntoBytes for DnsName {
 
     fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
        
-        for label in self.labels.iter() {
+        for label in &self.labels {
             packet.write_u8(label.len() as u8);
             let label_bytes = label.clone().into_bytes();            
             packet.write_bytes(&label_bytes);

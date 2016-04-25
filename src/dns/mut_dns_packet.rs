@@ -8,43 +8,42 @@ pub struct MutDnsPacket<'a> {
 
 impl<'a> MutDnsPacket<'a> {
     pub fn new(buf: &mut Vec<u8>) -> MutDnsPacket {        
-        return MutDnsPacket::new_at(buf, 0);
+        MutDnsPacket::new_at(buf, 0)
     }
 
     pub fn new_at(buf: &mut [u8], pos: usize) -> MutDnsPacket {
         debug!("New MutDnsPacket. buf.len()= {:?}", buf.len());
-        return MutDnsPacket {
+        MutDnsPacket {
             buf: buf,
             pos: pos,
-        };
+        }
     }
 }
 
 impl<'a> BufWrite for MutDnsPacket<'a> {
     fn buf(&mut self) -> &mut [u8] {
-        return self.buf;
+        self.buf
     }
 }
 
 impl<'a> BufRead for MutDnsPacket<'a> {
     fn buf(&self) -> &[u8] {
-        return self.buf;
+        self.buf
     }
 }
 
 impl<'a> DirectAccessBuf for MutDnsPacket<'a> {
     fn pos(&self) -> usize {
-        return self.pos;
+        self.pos
     }
     fn set_pos(&mut self, pos: usize) {
         self.pos = pos;
     }
 
     fn len(&self) -> usize {
-        return self.buf().len();
+        self.buf().len()
     }
 }
-//TODO: this is a copy and paste from DnsPacket
 ///Iterate each 16bit word in the packet
 impl<'a> Iterator for MutDnsPacket<'a> {
     ///2 octets of data and the position
@@ -54,7 +53,7 @@ impl<'a> Iterator for MutDnsPacket<'a> {
     ///Returns two octets in the order they expressed in the spec. I.e. first byte shifted to the left
     ///
     fn next(&mut self) -> Option<Self::Item> {
-        return self.next_u16().and_then(|n| return Some((n, self.pos)));
+        self.next_u16().and_then(|n| Some((n, self.pos)))
     }
 }
 

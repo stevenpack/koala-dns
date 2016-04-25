@@ -9,7 +9,7 @@ pub struct DnsPacket<'a> {
 
 impl<'a> DirectAccessBuf for DnsPacket<'a> {
     fn pos(&self) -> usize {
-        return self.pos;
+        self.pos
     }
 
     fn set_pos(&mut self, pos: usize) {
@@ -17,25 +17,25 @@ impl<'a> DirectAccessBuf for DnsPacket<'a> {
     }
 
     fn len(&self) -> usize {
-        return self.buf().len();
+        self.buf().len()
     }
 }
 impl<'a> BufRead for DnsPacket<'a> {
     fn buf(&self) -> &[u8] {
-        return self.buf;
+        self.buf
     }
 }
 
 impl<'a> DnsPacket<'a> {
-    pub fn new(buf: &Vec<u8>) -> DnsPacket {
-        return DnsPacket::new_at(buf, 0);
+    pub fn new(buf: &[u8]) -> DnsPacket {
+        DnsPacket::new_at(buf, 0)
     }
 
-    pub fn new_at(buf: &Vec<u8>, pos: usize) -> DnsPacket {
-        return DnsPacket {
+    pub fn new_at(buf: &[u8], pos: usize) -> DnsPacket {
+        DnsPacket {
             buf: buf,
             pos: pos,
-        };
+        }
     }
 }
 
@@ -48,7 +48,7 @@ impl<'a> Iterator for DnsPacket<'a> {
     ///Returns two octets in the order they expressed in the spec. I.e. first byte shifted to the left
     ///
     fn next(&mut self) -> Option<(u16, usize)> {
-        return self.next_u16().and_then(|n| return Some((n, self.pos)));
+        self.next_u16().and_then(|n| Some((n, self.pos)))
     }
 }
 #[cfg(test)]

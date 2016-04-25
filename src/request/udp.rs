@@ -38,9 +38,9 @@ impl ForwardedRequest for UdpRequest {
             Ok(sock) => {
                 let result = self.base.accept(ctx, &sock);
                 self.upstream_socket = Some(sock);
-                return result;
+                result
             },
-            Err(e) => return Some(self.base.error_with(format!("Failed to create udp socket {:?}", e)))
+            Err(e) => Some(self.base.error_with(format!("Failed to create udp socket {:?}", e)))
         }
     }
 
@@ -59,7 +59,7 @@ impl ForwardedRequest for UdpRequest {
 
     fn forward(&mut self, ctx: &mut RequestCtx) -> Option<Response> {
         if let Some(ref sock) = self.upstream_socket {
-            return match sock.send_to(&mut self.base.query_buf.as_slice(), &self.base.params.upstream_addr) {
+            return match sock.send_to(&self.base.query_buf.as_slice(), &self.base.params.upstream_addr) {
               Ok(Some(count)) => self.base.on_forward(ctx, count, sock),
               Ok(None) => self.base.socket_debug(format!("0 bytes sent. Staying in same state {:?}", ctx.token)),
               Err(e) => Some(self.base.on_forward_err(ctx, e))

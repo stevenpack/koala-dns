@@ -14,14 +14,16 @@ pub struct Cache {
     keys: Vec<CacheExpiry> //for expiring (ordered). BTreeSet/Map doesn't work because it does't have any way to iterate and remove
 }
 
-impl Cache  {
-    pub fn new() -> Cache {
+impl Default for Cache  {
+    fn default() -> Cache {
         Cache {
             map: HashMap::new(),
             keys: Vec::new()
         }
     }
+}
 
+impl Cache  {
     pub fn upsert(&mut self, key: CacheKey, val: CacheEntry) {
         self.remove_expired();
         let expiry_data = CacheExpiry::new(key.clone(), val.expiry());
@@ -46,6 +48,11 @@ impl Cache  {
         self.map.len()
     }
 
+    #[allow(dead_code)]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
     pub fn remove_expired(&mut self) -> usize {
         let now = SteadyTime::now();        
         let key_count = self.keys.len();
@@ -59,7 +66,7 @@ impl Cache  {
 
     fn remove_expired_map(&mut self, now: SteadyTime) {
         //keys are ordered by expiry
-        for cache_expiry in self.keys.iter() {
+        for cache_expiry in &self.keys {
             if cache_expiry.expiry > now {
                 break;
             }

@@ -51,7 +51,7 @@ impl Handler for MioServer {
     fn notify(&mut self, event_loop: &mut EventLoop<Self>, msg: String) {
         //For tests. Could implement SIG handling
         info!("Got a message {}", msg);
-        if msg == format!("{}", "Stop!") {
+        if msg == "Stop!" {
             event_loop.shutdown()
         }
     }
@@ -71,12 +71,12 @@ impl<'a> RequestCtx<'a> {
             token: Token,
             cache: SharedCache)
             -> RequestCtx {
-        return RequestCtx {
+        RequestCtx {
             event_loop: event_loop,
             events: events,
             token: token,
             cache: cache
-        };
+        }
     }
 }
 
@@ -115,7 +115,7 @@ impl MioServer {
                                             EventSet::readable(),
                                             PollOpt::edge() | PollOpt::oneshot());
 
-                let cache = Cache::new();
+                let cache = Cache::default();
                 let mut mio_server = MioServer {
                     udp_server: udp_server,
                     tcp_server: tcp_server,
@@ -129,6 +129,6 @@ impl MioServer {
             .unwrap_or_else(|e| {
              panic!("Failed to start server thread. Error was {}", e)
             });
-        return (None, run_handle);
+        (None, run_handle)
     }
 }

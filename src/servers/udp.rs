@@ -28,7 +28,7 @@ impl UdpServer{
     pub fn bind_udp(address: SocketAddr) -> UdpSocket {
         info!("Binding UDP to {:?}", address);
         let udp_socket = UdpSocket::v4().unwrap_or_else(|e| panic!("Failed to create udp socket {}", e));
-        let _ = udp_socket.bind(&address).unwrap_or_else(|e| panic!("Failed to bind udp socket. Error was {}", e));
+        udp_socket.bind(&address).unwrap_or_else(|e| panic!("Failed to bind udp socket. Error was {}", e));
         udp_socket
     }
 
@@ -82,7 +82,7 @@ impl UdpServer{
 
     fn send_all(&mut self) {
         debug!("There are {} udp responses to send", self.base.responses.len());
-        while self.base.responses.len() > 0 {
+        while !self.base.responses.is_empty() {
             if let Some(response) = self.base.responses.pop() {
                 self.send(&response, &self.server_socket);    
             }
@@ -92,7 +92,7 @@ impl UdpServer{
     fn send(&self, response: &Response, socket: &UdpSocket) {
         if let Some(client_addr) = self.accepted.get(&response.token) {
             info!("{:?} bytes to send", response.bytes.len());
-            match socket.send_to(&mut &response.bytes, &client_addr) {
+            match socket.send_to(&response.bytes, &client_addr) {
                 Ok(n) => debug!("{:?} udp bytes sent to client. {:?}", n, &client_addr),
                 Err(e) => error!("Failed to send. {:?} Error was {:?}", &client_addr, e),
             }            

@@ -76,12 +76,12 @@ pub fn parse_args() -> Config {
     }
 
 
-    return Config {
+    Config {
         port: port_num,
         server: upstream_server,
         timeout: timeout_num,
         master_file: master_file
-    };
+    }
 }
 
 fn print_usage(program: &str, opts: Options) {

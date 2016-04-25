@@ -33,19 +33,19 @@ impl ForwardedRequest for TcpRequest {
 
     fn accept(&mut self, ctx: &mut RequestCtx) -> Option<Response> {
         let addr = self.base.params.upstream_addr;
-        return match TcpStream::connect(&addr) {
+        match TcpStream::connect(&addr) {
             Ok(sock) => {
                 self.base.accept(ctx, &sock);
                 self.upstream_socket = Some(sock);
-                return None;
+                None
             },
             Err(e) => Some(self.base.error_with(format!("Failed to connect to {:?} {:?}", addr, e)))
         }
     }
 
     fn receive(&mut self, ctx: &mut RequestCtx) -> Option<Response> {
-        debug_assert!(ctx.events.is_readable());
         const PREFIX_LEN: usize = 2;
+        debug_assert!(ctx.events.is_readable());        
         let mut buf = [0; 4096];
         if let Some(ref mut sock) = self.upstream_socket {
             return match sock.read(&mut buf) {
@@ -71,7 +71,7 @@ impl ForwardedRequest for TcpRequest {
             Self::prefix_with_length(&mut self.base.query_buf);
             let len = self.base.query_buf.len() as usize;
             debug!("{:?} bytes to send (inc 2b prefix)", len);
-            return match sock.write_all(&mut self.base.query_buf.as_slice()) {
+            return match sock.write_all(&self.base.query_buf.as_slice()) {
                 Ok(_) => self.base.on_forward(ctx, len, sock),
                 Err(e) => Some(self.base.on_forward_err(ctx, e))
             }
