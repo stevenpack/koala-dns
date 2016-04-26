@@ -2,7 +2,6 @@ language: rust
 sudo: false
 rust:
   - nightly
-  - 1.5.0
 
 os:
   - linux
