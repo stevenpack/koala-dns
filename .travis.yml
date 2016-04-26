@@ -8,6 +8,5 @@ os:
   - osx
 
 script:
- - cargo build --features debugging
  - rm -rf target/ Cargo.lock
- - cargo test --features debugging
+ - cargo test
