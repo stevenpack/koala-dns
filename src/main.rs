@@ -1,7 +1,6 @@
 #![feature(test)]
 #![feature(associated_consts)]
 #![feature(plugin)]
-#![plugin(clippy)]
 extern crate getopts;
 extern crate mio;
 #[macro_use]
