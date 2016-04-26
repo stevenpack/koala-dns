@@ -3,6 +3,8 @@ DNS Server in Rust
 
 ## Badges of Honour (?)
 
+[![Build Status](https://travis-ci.org/stevenpack/koala-dns.svg?branch=master)](https://travis-ci.org/stevenpack/koala-dns)
+
 [![Clippy Linting Result](https://clippy.bashy.io/github/stevenpack/koala-dns/master/badge.svg?style=plastic)](https://clippy.bashy.io/github/stevenpack/koala-dns/master/log)
 
 ## Learning project
