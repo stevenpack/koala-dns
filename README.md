@@ -1,6 +1,10 @@
 # koala-dns
 DNS Server in Rust
 
+## Badges of Honour (?)
+
+[![Clippy Linting Result](https://clippy.bashy.io/github/stevenpack/koala-dns/master/badge.svg?style=plastic)](https://clippy.bashy.io/github/stevenpack/koala-dns/master/log)
+
 ## Learning project
 
 ### TODO
