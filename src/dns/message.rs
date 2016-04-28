@@ -7,8 +7,6 @@ use std::str::FromStr;
 
 //note: qdcount doesn't really make sense and most dns servers don't respect it. How do you
 //correlate the multiple answers to multiple questions? what do the flags apply to?
-//TODO: return Result<T,DnsParseError> for parsing, rather than using unwrap_or_default().
-//      msg is either valid, or it's not
 
 #[derive(Debug)]
 #[derive(Clone)]
@@ -105,7 +103,7 @@ impl DnsHeader {
             qr: true,
             opcode: request_header.opcode,
             aa: request_header.aa,
-            tc: false, // todo
+            tc: false, // todo. was the message truncated?
             rd: request_header.rd,
             ra: true,
             z: 0,
@@ -211,6 +209,8 @@ impl IntoBytes for DnsHeader {
 
 impl DnsMessage {
     pub fn parse(buf: &[u8]) -> DnsMessage {
+        //TODO: return Result<T,DnsParseError> for parsing, rather than using unwrap_or_default().
+        //      msg is either valid, or it's not
         let mut packet = DnsPacket::new(buf);
         let header = DnsHeader::parse(&mut packet);
         if header.qr {
@@ -523,10 +523,9 @@ mod tests {
         let reply = DnsMessage::parse(&test_reply_buf());
         println!("{:?}", reply);
         assert_eq!(2161, reply.header.id);
-        // todo: more flags
-        // todo: assert_eq!(0, OpCode::Query);
+        // todo: test more flags
         assert_eq!(1, reply.header.qdcount);
-        //assert_eq!(1, reply.questions.len());
+        assert_eq!(1, reply.questions.len());
         assert_eq!(3, reply.header.ancount);
         assert_eq!(3, reply.answers.len());
 
@@ -535,8 +534,6 @@ mod tests {
         assert_eq!(10, a.ttl);
         assert_eq!(4, a.rdlength);
         assert_eq!(vec![206, 190, 36, 45], a.rdata);
-        // todo: other answers
-
     }
 
     #[test]
@@ -575,16 +572,14 @@ mod tests {
         let q = DnsMessage::parse(&test_query_buf());
         println!("{:?}", q);
         assert_eq!(2161, q.header.id);
-        // todo: assert_eq!(0, OpCode::Query);
         assert_eq!(1, q.header.qdcount);
-        //assert_eq!(1, q.questions.len());
+        assert_eq!(1, q.questions.len());
         assert_eq!("yahoo.com", q.questions[0].qname.to_string());
-        // todo: more flags
     }
 
-    // todo: test with multiple questions
+    // todo: test with multiple questions. We ignore... shoudl probably FORMATFAIL
     // todo: test with part pointers. i.e, only part of the name has pointers
-    // see example page 30
+    // see example page 30 of RFC1035
 
 
     #[bench]

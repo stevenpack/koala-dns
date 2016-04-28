@@ -1,6 +1,9 @@
 ///
-///A Left-To-Right `BitCursor` for reading and writing bits
-///
+///A Left-To-Right `BitCursor` for reading and writing bits.
+///Similar to byte buffer, a bit position with the byte is kept
+///allowing values to be retrieved sequentially. 
+///Most impls use a known bitmask for each value, but this cursor
+//approach feels a natural way to parse the header based on the spec.
 pub struct BitCursor {
     bits: u16,
     pos: u32,

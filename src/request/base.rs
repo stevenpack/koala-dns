@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::io::Error;
 use mio::{Token, Timeout, Handler, EventSet, Evented, PollOpt};
 use server_mio::RequestCtx;
-use dns::dns_entities::*;
+use dns::message::*;
 
 pub struct RawRequest {
     pub token: Token,

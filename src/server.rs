@@ -3,6 +3,14 @@ use std::net::SocketAddr;
 use server_mio::MioServer;
 use mio::Sender;
 
+///
+/// Rust DNS server.
+/// 
+/// Server binds TCP and UDP sockets using Mio. As requests come in, they are routed through the ReqeustPipeline
+/// New requests are parsed, checked for an authoritive answer, a cached answer, or are forwarded upstream.
+/// All socket events are either incoming requests, or read/writes from the Upstream requests. Responses are
+/// written immediately
+///
 pub struct Server {
     pub port: u32,
     pub upstream_server: SocketAddr,

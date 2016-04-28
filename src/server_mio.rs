@@ -103,7 +103,7 @@ impl MioServer {
                 let udp_server = UdpServer::new(address, max_connections, params);
                 let tcp_server = TcpServer::new(address, max_connections, params);
 
-                //TODO: event loop per core?
+                //TODO: event loop per core.
 
                 let _ = event_loop.register(&udp_server.server_socket,
                                             UdpServer::UDP_SERVER_TOKEN,

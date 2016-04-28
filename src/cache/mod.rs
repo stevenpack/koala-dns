@@ -3,12 +3,12 @@ extern crate time;
 use std::collections::{HashMap};
 use std::cmp::Ordering;
 use time::*;
-use dns::dns_entities::*;
+use dns::message::*;
 
-pub trait Expires {
-    fn expiry(&self) -> SteadyTime;
-}
 
+///Unbounded cache of DnsAnswer
+///It tries to be somewhat performant by using a HashMap for lookups and keeping
+///an ordered Vec of keys by expiry for fast removal of expired items. 
 pub struct Cache {
     map: HashMap<CacheKey,CacheEntry>, //for retrieval
     keys: Vec<CacheExpiry> //for expiring (ordered). BTreeSet/Map doesn't work because it does't have any way to iterate and remove
@@ -21,6 +21,10 @@ impl Default for Cache  {
             keys: Vec::new()
         }
     }
+}
+
+pub trait Expires {
+    fn expiry(&self) -> SteadyTime;
 }
 
 impl Cache  {
@@ -192,7 +196,7 @@ mod test {
     use std::thread;
     use std::time::Duration;
     use std::str::FromStr;
-    use dns::dns_entities::{DnsAnswer, DnsName};
+    use dns::message::{DnsAnswer, DnsName};
 
     fn test_cache() -> Cache {
         let mut cache = Cache::default();

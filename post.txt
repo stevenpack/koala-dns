@@ -2,11 +2,22 @@ post
 
 code review
 cache impls, redis etc.
+pluggable impls (custom build step like bluejekyll does?)
 dns review
   - bitcursor?
 
  - udp setsockoption reuseaddr and reuseport
 
-inheritance. base, server_base, Record, ARecord...
+inheritance. base, server_base, Record, ARecord... similar to database table normalization?
 
 thread per core / udp issue
+
+would like
+ - edns
+ - ip6
+ - return Result<DnsMessage,Error> on parse (e.g. header too short)
+ - 
+
+Compile time.
+
+multiple questions... the DNS spec doesn't really make sense for multiple questions... e.g. which answers correlate to which requests? being able to get answers to the 20 or so domains on a webpage would greatly increase speed.

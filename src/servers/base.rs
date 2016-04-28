@@ -3,7 +3,7 @@ use mio::{EventLoop, EventSet, Token, PollOpt, Evented};
 use server_mio::{MioServer,RequestCtx};
 use request::base::*;
 use cache::*;
-use dns::dns_entities::*;
+use dns::message::*;
 use servers::pipeline::*;
 
 

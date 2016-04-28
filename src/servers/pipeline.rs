@@ -1,7 +1,7 @@
 use server_mio::{RequestCtx};
 use request::base::*;
 use cache::*;
-use dns::dns_entities::*;
+use dns::message::*;
 
 pub trait PipelineStage {
     fn process(&self, request: &mut RawRequest, ctx: &RequestCtx) -> Option<Response>;
