@@ -90,3 +90,7 @@ yahoo.com.		1053	IN	A	98.138.253.109
 ;; WHEN: Wed Apr 27 21:16:50 2016
 ;; MSG SIZE  rcvd: 102
 </pre>
+
+## Notes
+
+Not for production - for my own learning. It would just fill up the cache till it ran out of memory and would fill up the ForwardedRequests map until it blew up at the first DOS attack.
