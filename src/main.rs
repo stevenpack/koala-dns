@@ -2,6 +2,7 @@
 #![feature(associated_consts)]
 #![feature(plugin)]
 #![plugin(clippy)]
+#[allow(unknown_lints)] //until can build clippy with nightly on travis
 extern crate getopts;
 extern crate mio;
 #[macro_use]

@@ -92,10 +92,14 @@ impl ServerBase {
 
     pub fn timeout(&mut self, ctx: &mut RequestCtx) {
         debug!("Timeout for {:?} {:?}", ctx.token, ctx.events);
+        let mut opt_response = None;
         if let Some(mut req) = self.forwarded.get_mut(&ctx.token) {
-            req.get_mut().on_timeout(ctx.token);
+            opt_response = Some(req.get_mut().on_timeout(ctx.token));            
         } else {
             warn!("Timeout for {:?}, but not in forwarded map", ctx.token);
+        }
+        if let Some(response) = opt_response {
+            self.queue_response(ctx, response);
         }
     }
 

@@ -3,9 +3,6 @@ use std::net::SocketAddr;
 use server_mio::MioServer;
 use mio::Sender;
 
-//
-// Public shown to main
-//
 pub struct Server {
     pub port: u32,
     pub upstream_server: SocketAddr,
@@ -47,7 +44,7 @@ impl ServerOps for Server {
         let address_str = format!("0.0.0.0:{:?}", self.port);
         let address = address_str.parse().unwrap_or_else(|e| panic!("Couldn't parse address {:?} {:?}", address_str, e));
         let (tx, run_handle) = MioServer::start(address, self.upstream_server, self.timeout);
-        self.sender = tx;
+        self.sender = Some(tx);
         info!("Joining on run handle");
         run_handle
     }

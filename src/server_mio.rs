@@ -85,14 +85,14 @@ impl MioServer {
     pub fn start(address: SocketAddr,
                  upstream_server: SocketAddr,
                  timeout: u64)
-                 -> (Option<Sender<String>>, JoinHandle<()>) {
+                 -> (Sender<String>, JoinHandle<()>) {
 
-        
+        let mut event_loop = EventLoop::<MioServer>::new().unwrap();        
+        let sender = event_loop.channel();
         let run_handle = thread::Builder::new()
             .name("dns_srv_net_io".to_string())
             .spawn(move || {
-
-                let mut event_loop = EventLoop::<MioServer>::new().unwrap();
+                
                 let max_connections = u16::max_value() as usize;
 
                 let params = RequestParams {
@@ -121,14 +121,15 @@ impl MioServer {
                     tcp_server: tcp_server,
                     cache: Arc::new(RwLock::new(cache))
                 };
-                info!("Mio server running...");
-                let _ = event_loop.run(&mut mio_server);
+                info!("Start server...");
+                let result = event_loop.run(&mut mio_server);
+                info!("{:?}", result);
                 drop(mio_server.udp_server);
                 drop(mio_server.tcp_server);
             })
             .unwrap_or_else(|e| {
              panic!("Failed to start server thread. Error was {}", e)
             });
-        (None, run_handle)
+        (sender, run_handle)
     }
 }

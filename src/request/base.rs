@@ -22,7 +22,7 @@ impl RawRequest {
 
 #[derive(PartialEq)]
 pub enum Source {
-    //System, //such as error
+    System, //such as error
     Authoritive,
     Cache,
     Upstream
@@ -164,10 +164,10 @@ impl ForwardedRequestBase {
         self.set_state(ForwardedRequestState::Error);
         debug!("{}", err_msg);
         let req = DnsMessage::parse(&self.query_buf);
-        let header = DnsHeader::new_error(req.header, 2);
+        let header = DnsHeader::new_error(req.header, 4);
         let msg = DnsMessage::new_error(header);
         let bytes = msg.to_bytes();
-        Response::with_source(self.token, bytes, msg, Source::Upstream)
+        Response::with_source(self.token, bytes, msg, Source::System)
     }
 
     pub fn accept(&mut self, ctx: &mut RequestCtx, sock: &Evented) -> Option<Response> {

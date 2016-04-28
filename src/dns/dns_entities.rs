@@ -80,8 +80,8 @@ pub struct DnsName {
 impl IntoBytes for DnsMessage {
 
     fn write(&self, mut packet: &mut MutDnsPacket) -> usize {
-        self.header.write(packet);
-        let mut pos = 0;
+        
+        let mut pos = self.header.write(packet);
 
         //Replies also have the question in the answer msg
         for question in &self.questions {
@@ -107,7 +107,7 @@ impl DnsHeader {
             aa: request_header.aa,
             tc: false, // todo
             rd: request_header.rd,
-            ra: request_header.ra,
+            ra: true,
             z: 0,
             rcode: rcode,
             qdcount: 0,
@@ -204,7 +204,7 @@ impl IntoBytes for DnsHeader {
             packet.write_u16(self.nscount); //nscount
             packet.write_u16(self.arcount); //arcount
         }
-        debug!("{:?} bytes in header", packet.pos());        
+        debug!("{:?} bytes in header. self={:?}", packet.pos(), self);        
         packet.pos()
     }
 }
